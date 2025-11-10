@@ -434,7 +434,7 @@
                             playerCard.className = `player-card ${player.color}`;
                             playerCard.innerHTML = `
                                 <div>${player.name}</div>
-                                <div class="player-score">Kills: ${player.kills || 0} | Wins: ${player.wins || 0}</div>
+                                <div class="player-score">Points: ${player.points || 0}</div>
                             `;
                             queuedPlayersList.appendChild(playerCard);
                         });
@@ -586,6 +586,36 @@
                 ctx.strokeRect(wall.x * scaleX, wall.y * scaleY, wall.width * scaleX, wall.height * scaleY);
             });
 
+            // Draw powerups
+            if (gameState.powerups) {
+                gameState.powerups.forEach(powerup => {
+                    // Pulsing effect
+                    const pulse = Math.sin(Date.now() / 200) * 2 + 15;
+
+                    if (powerup.type === 'machinegun') {
+                        ctx.fillStyle = '#00ff00'; // Green
+                        ctx.shadowBlur = 15;
+                        ctx.shadowColor = '#00ff00';
+                    } else if (powerup.type === 'ricochet') {
+                        ctx.fillStyle = '#ff00ff'; // Magenta
+                        ctx.shadowBlur = 15;
+                        ctx.shadowColor = '#ff00ff';
+                    }
+
+                    ctx.beginPath();
+                    ctx.arc(powerup.x * scaleX, powerup.y * scaleY, pulse, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+
+                    // Label
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    const label = powerup.type === 'machinegun' ? 'MG' : 'RC';
+                    ctx.fillText(label, powerup.x * scaleX, powerup.y * scaleY + 25);
+                });
+            }
+
             gameState.bullets.forEach(bullet => {
                 // Glowing bullet effect
                 ctx.shadowBlur = 10;
@@ -608,7 +638,7 @@
                 }
 
                 ctx.beginPath();
-                ctx.arc(player.x * scaleX, player.y * scaleY, 10, 0, Math.PI * 2); // Reduced from 15 to 10
+                ctx.arc(player.x * scaleX, player.y * scaleY, 5, 0, Math.PI * 2); // Super tight - 5 pixel radius
                 ctx.fill();
 
                 if (player.health > 0) {
@@ -667,7 +697,7 @@
                 const statsSpan = document.createElement('span');
                 statsSpan.style.marginLeft = '10px';
                 statsSpan.style.color = '#aaa';
-                statsSpan.textContent = `Kills: ${player.kills || 0} | Wins: ${player.wins || 0}`;
+                statsSpan.textContent = `Kills: ${player.kills || 0} | Points: ${player.points || 0}`;
 
                 const healthBar = document.createElement('div');
                 healthBar.className = 'health-bar';

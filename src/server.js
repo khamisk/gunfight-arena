@@ -13,7 +13,7 @@ const COLORS = ['blue', 'red', 'yellow', 'green'];
 let lobby = null;
 let gameRooms = new Map();
 let playerConnections = new Map();
-let playerStats = new Map(); // Persistent stats: name -> {kills, wins}
+let playerStats = new Map(); // Persistent stats: name -> {kills, points}
 
 function getOrCreateLobby() {
     if (!lobby) {
@@ -95,6 +95,44 @@ class GameRoom {
                 powerup: null // 'machinegun' or 'ricochet'
             };
         });
+
+        // Spawn one random powerup
+        this.spawnPowerup();
+    }
+
+    spawnPowerup() {
+        const powerupTypes = ['machinegun', 'ricochet'];
+        const type = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
+
+        // Random position avoiding walls
+        let x, y;
+        let validPosition = false;
+        for (let attempt = 0; attempt < 50; attempt++) {
+            x = 150 + Math.random() * 500;
+            y = 150 + Math.random() * 300;
+
+            // Check if position overlaps with walls
+            validPosition = true;
+            for (let wall of this.gameState.walls) {
+                if (x > wall.x - 30 && x < wall.x + wall.width + 30 &&
+                    y > wall.y - 30 && y < wall.y + wall.height + 30) {
+                    validPosition = false;
+                    break;
+                }
+            }
+
+            if (validPosition) break;
+        }
+
+        this.gameState.powerups.push({
+            id: Math.random().toString(36).substr(2, 9),
+            type: type,
+            x: x,
+            y: y,
+            radius: 15
+        });
+
+        console.log(`💊 Spawned ${type} powerup at (${Math.floor(x)}, ${Math.floor(y)})`);
     }
 
     generateWalls() {
@@ -185,6 +223,22 @@ class GameRoom {
             // Clamp to map bounds
             player.x = Math.max(20, Math.min(mapWidth - 20, player.x));
             player.y = Math.max(20, Math.min(mapHeight - 20, player.y));
+
+            // Check powerup collection
+            this.gameState.powerups = this.gameState.powerups.filter(powerup => {
+                const dx = player.x - powerup.x;
+                const dy = player.y - powerup.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < powerup.radius + 5) {
+                    // Player collected powerup
+                    player.powerup = powerup.type;
+                    player.powerupTime = this.gameState.gameTime;
+                    console.log(`💊 ${player.name} collected ${powerup.type} powerup!`);
+                    return false; // Remove powerup
+                }
+                return true;
+            });
         });
 
         this.gameState.bullets = this.gameState.bullets.filter(bullet => {
@@ -197,7 +251,25 @@ class GameRoom {
 
             for (let wall of this.gameState.walls) {
                 if (this.bulletCollidesWithWall(bullet, wall)) {
-                    return false;
+                    if (bullet.ricochet && bullet.bounces > 0) {
+                        // Calculate bounce
+                        const centerX = wall.x + wall.width / 2;
+                        const centerY = wall.y + wall.height / 2;
+                        const hitFromSide = Math.abs(bullet.x - centerX) / wall.width > Math.abs(bullet.y - centerY) / wall.height;
+
+                        if (hitFromSide) {
+                            bullet.vx = -bullet.vx; // Bounce horizontally
+                        } else {
+                            bullet.vy = -bullet.vy; // Bounce vertically
+                        }
+
+                        bullet.bounces--;
+                        // Move bullet away from wall to prevent re-collision
+                        bullet.x += bullet.vx * deltaTime * 2;
+                        bullet.y += bullet.vy * deltaTime * 2;
+                    } else {
+                        return false;
+                    }
                 }
             }
 
@@ -205,7 +277,7 @@ class GameRoom {
                 const player = this.gameState.players[playerId];
                 if (player.id !== bullet.playerId && player.health > 0) {
                     if (this.bulletCollidesWithPlayer(bullet, player)) {
-                        player.health -= 50; // 2-shot kill (100 health / 50 damage)
+                        player.health -= bullet.damage; // Use bullet's damage value
                         if (player.health <= 0) {
                             const shooter = this.gameState.players[bullet.playerId];
                             if (shooter) {
@@ -262,11 +334,11 @@ class GameRoom {
     }
 
     isCollidingWithWall(player, wall) {
-        // Reduced player radius from 10 to 8 for tighter hitboxes
-        return player.x + 8 > wall.x &&
-            player.x - 8 < wall.x + wall.width &&
-            player.y + 8 > wall.y &&
-            player.y - 8 < wall.y + wall.height;
+        // Super tight hitbox - radius of 5 for squeezing through gaps
+        return player.x + 5 > wall.x &&
+            player.x - 5 < wall.x + wall.width &&
+            player.y + 5 > wall.y &&
+            player.y - 5 < wall.y + wall.height;
     }
 
     bulletCollidesWithWall(bullet, wall) {
@@ -287,18 +359,37 @@ class GameRoom {
         const player = this.gameState.players[playerId];
         if (!player || player.health <= 0) return;
 
-        // Cooldown check - 0.5 second between shots
         const now = Date.now();
-        if (now - player.lastShot < 500) return;
+        let cooldown = 500; // Default cooldown
+        let damage = 50; // Default damage (2-shot kill)
+        let ricochet = false;
+
+        // Check for active powerup
+        if (player.powerup) {
+            if (player.powerup === 'machinegun') {
+                cooldown = 100; // 10 shots per second
+                damage = 25; // 4 shots to kill
+            } else if (player.powerup === 'ricochet') {
+                cooldown = 80; // 12.5 shots per second (very fast spray)
+                damage = 12.5; // 8 shots to kill
+                ricochet = true;
+            }
+        }
+
+        // Cooldown check
+        if (now - player.lastShot < cooldown) return;
         player.lastShot = now;
 
-        const speed = 900; // Increased from 500 to 900
+        const speed = 900;
         const bullet = {
             x: player.x + Math.cos(angle) * 25,
             y: player.y + Math.sin(angle) * 25,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            playerId: playerId
+            playerId: playerId,
+            damage: damage,
+            ricochet: ricochet,
+            bounces: ricochet ? 3 : 0 // Ricochet bullets can bounce 3 times
         };
         this.gameState.bullets.push(bullet);
     }
@@ -403,12 +494,12 @@ function broadcastLobbyUpdate() {
         playerCount: lobby.players.length,
         maxPlayers: 4,
         players: lobby.players.map(p => {
-            const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
+            const stats = playerStats.get(p.name) || { kills: 0, points: 0 };
             return {
                 name: p.name,
                 color: p.color,
                 kills: stats.kills,
-                wins: stats.wins
+                points: stats.points
             };
         }),
         timeRemaining: lobby.startTime ? Math.max(0, 5 - (Date.now() - lobby.startTime) / 1000) : 5
@@ -463,7 +554,9 @@ function startGame(currentLobby) {
         const gameState = {
             players: room.gameState.players,
             bullets: room.gameState.bullets,
-            walls: room.gameState.walls
+            walls: room.gameState.walls,
+            zone: room.gameState.zone,
+            powerups: room.gameState.powerups
         };
 
         players.forEach(player => {
@@ -509,13 +602,13 @@ function endGame(room, players, gameLoop) {
 
     // Save stats
     Object.values(room.gameState.players).forEach(player => {
-        const stats = playerStats.get(player.name) || { kills: 0, wins: 0 };
+        const stats = playerStats.get(player.name) || { kills: 0, points: 0 };
         stats.kills += player.kills || 0;
         if (winner && player.id === winner.id) {
-            stats.wins += 1;
+            stats.points += 1; // +1 point for winning only
         }
         playerStats.set(player.name, stats);
-        console.log(`💾 Saved stats for ${player.name}: ${stats.kills} kills, ${stats.wins} wins`);
+        console.log(`💾 Saved stats for ${player.name}: ${stats.kills} kills, ${stats.points} points`);
     });
 
     gameRooms.delete(room.roomId);
@@ -528,12 +621,12 @@ function endGame(room, players, gameLoop) {
                 type: 'game_end',
                 winner: winner ? winner.name : 'None',
                 finalStats: Object.values(room.gameState.players).map(p => {
-                    const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
+                    const stats = playerStats.get(p.name) || { kills: 0, points: 0 };
                     return {
                         name: p.name,
                         kills: p.kills || 0,
                         totalKills: stats.kills,
-                        totalWins: stats.wins
+                        totalPoints: stats.points
                     };
                 })
             }));
