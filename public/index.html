@@ -356,23 +356,29 @@
             const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
             if (!ourPlayer) return;
 
-            // Get accurate canvas position
+            // Get accurate canvas position with rect
             const rect = canvas.getBoundingClientRect();
+
+            // Mouse position relative to canvas
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
-            // Calculate scale based on actual canvas size vs game world (800x600)
+            // Game world is always 800x600, canvas might be different size
             const scaleX = canvas.width / 800;
             const scaleY = canvas.height / 600;
 
-            // Player position on screen (scaled from game world coordinates)
+            // Convert player position from game world to canvas pixels
             const playerScreenX = ourPlayer.x * scaleX;
             const playerScreenY = ourPlayer.y * scaleY;
 
-            // Calculate angle from player to mouse cursor
+            // Calculate angle - this should point from player to mouse cursor
             const dx = mouseX - playerScreenX;
             const dy = mouseY - playerScreenY;
-            mouseAngle = Math.atan2(dy, dx);
+
+            // Only update if we have a valid angle (not at exact same position)
+            if (dx !== 0 || dy !== 0) {
+                mouseAngle = Math.atan2(dy, dx);
+            }
         });
 
         canvas.addEventListener('click', () => {
@@ -445,6 +451,9 @@
                         clearInterval(countdownInterval);
                         countdownInterval = null;
                     }
+
+                    // Reset mouse angle to prevent weird start aiming
+                    mouseAngle = 0;
 
                     // Store game state
                     gameState = data.state;

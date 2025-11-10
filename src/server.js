@@ -186,11 +186,11 @@ class GameRoom {
     }
 
     isCollidingWithWall(player, wall) {
-        // Reduced player radius from 15 to 10
-        return player.x + 10 > wall.x &&
-            player.x - 10 < wall.x + wall.width &&
-            player.y + 10 > wall.y &&
-            player.y - 10 < wall.y + wall.height;
+        // Reduced player radius from 10 to 8 for tighter hitboxes
+        return player.x + 8 > wall.x &&
+            player.x - 8 < wall.x + wall.width &&
+            player.y + 8 > wall.y &&
+            player.y - 8 < wall.y + wall.height;
     }
 
     bulletCollidesWithWall(bullet, wall) {
