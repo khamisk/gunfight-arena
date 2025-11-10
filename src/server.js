@@ -13,7 +13,7 @@ const COLORS = ['blue', 'red', 'yellow', 'green'];
 let lobby = null;
 let gameRooms = new Map();
 let playerConnections = new Map();
-let playerStats = new Map(); // Persistent stats: name -> {kills, points}
+let playerStats = new Map(); // Persistent stats: name -> {kills, wins}
 
 function getOrCreateLobby() {
     if (!lobby) {
@@ -506,12 +506,12 @@ function broadcastLobbyUpdate() {
         playerCount: lobby.players.length,
         maxPlayers: 4,
         players: lobby.players.map(p => {
-            const stats = playerStats.get(p.name) || { kills: 0, points: 0 };
+            const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
             return {
                 name: p.name,
                 color: p.color,
                 kills: stats.kills,
-                points: stats.points
+                wins: stats.wins
             };
         }),
         timeRemaining: lobby.startTime ? Math.max(0, 5 - (Date.now() - lobby.startTime) / 1000) : 5
@@ -563,8 +563,19 @@ function startGame(currentLobby) {
 
         room.update(deltaTime);
 
+        // Add persistent stats (wins) to player data
+        const playersWithStats = {};
+        Object.keys(room.gameState.players).forEach(playerId => {
+            const player = room.gameState.players[playerId];
+            const stats = playerStats.get(player.name) || { kills: 0, wins: 0 };
+            playersWithStats[playerId] = {
+                ...player,
+                wins: stats.wins
+            };
+        });
+
         const gameState = {
-            players: room.gameState.players,
+            players: playersWithStats,
             bullets: room.gameState.bullets,
             walls: room.gameState.walls,
             zone: room.gameState.zone,
@@ -615,13 +626,13 @@ function endGame(room, players, gameLoop) {
 
     // Save stats
     Object.values(room.gameState.players).forEach(player => {
-        const stats = playerStats.get(player.name) || { kills: 0, points: 0 };
+        const stats = playerStats.get(player.name) || { kills: 0, wins: 0 };
         stats.kills += player.kills || 0;
         if (winner && player.id === winner.id) {
-            stats.points += 1; // +1 point for winning only
+            stats.wins += 1; // +1 win for winning only
         }
         playerStats.set(player.name, stats);
-        console.log(`💾 Saved stats for ${player.name}: ${stats.kills} kills, ${stats.points} points`);
+        console.log(`💾 Saved stats for ${player.name}: ${stats.kills} kills, ${stats.wins} wins`);
     });
 
     gameRooms.delete(room.roomId);
@@ -634,12 +645,12 @@ function endGame(room, players, gameLoop) {
                 type: 'game_end',
                 winner: winner ? winner.name : 'None',
                 finalStats: Object.values(room.gameState.players).map(p => {
-                    const stats = playerStats.get(p.name) || { kills: 0, points: 0 };
+                    const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
                     return {
                         name: p.name,
                         kills: p.kills || 0,
                         totalKills: stats.kills,
-                        totalPoints: stats.points
+                        totalWins: stats.wins
                     };
                 })
             }));

@@ -459,12 +459,15 @@
                     console.log('👥 Players in lobby:', data.playerCount);
                     const timeRemaining = data.lobby ? data.lobby.timeRemaining : 5;
 
-                    // Start countdown timer if not already running and there's time remaining
+                    // Start countdown timer if not already running and timer has started
                     if (timeRemaining > 0 && timeRemaining < 5 && !countdownInterval) {
                         startCountdownTimer(timeRemaining, data.playerCount);
-                    } else if (timeRemaining >= 5) {
-                        // Reset if timer hasn't started yet
+                    } else if (!countdownInterval) {
+                        // Only update if timer isn't running (timer hasn't started yet)
                         updateCountdown(data.playerCount, timeRemaining);
+                    } else {
+                        // Timer is already running, just update player count without resetting
+                        lastPlayerCount = data.playerCount;
                     }
 
                     // Update queued players list
@@ -480,7 +483,7 @@
                             playerCard.className = `player-card ${player.color}`;
                             playerCard.innerHTML = `
                                 <div>${player.name}</div>
-                                <div class="player-score">Points: ${player.points || 0}</div>
+                                <div class="player-score">Wins: ${player.wins || 0}</div>
                             `;
                             queuedPlayersList.appendChild(playerCard);
                         });
@@ -769,7 +772,7 @@
                 const statsSpan = document.createElement('span');
                 statsSpan.style.marginLeft = '10px';
                 statsSpan.style.color = '#aaa';
-                statsSpan.textContent = `Kills: ${player.kills || 0} | Points: ${player.points || 0}`;
+                statsSpan.textContent = `Kills: ${player.kills || 0} | Wins: ${player.wins || 0}`;
 
                 const healthBar = document.createElement('div');
                 healthBar.className = 'health-bar';
@@ -795,6 +798,7 @@
         function startCountdownTimer(initialTime, playerCount) {
             let timeLeft = initialTime;
             const startTime = Date.now();
+            lastPlayerCount = playerCount;
 
             if (countdownInterval) clearInterval(countdownInterval);
 
@@ -802,16 +806,15 @@
                 const elapsed = (Date.now() - startTime) / 1000;
                 timeLeft = Math.max(0, initialTime - elapsed);
 
-                updateCountdown(playerCount, timeLeft);
+                // Use lastPlayerCount which gets updated when new players join
+                updateCountdown(lastPlayerCount, timeLeft);
 
                 if (timeLeft <= 0) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
                 }
             }, 100); // Update every 100ms for smooth countdown
-        }
-
-        function updateCountdown(totalQueued = 1, timeRemaining = 5) {
+        } function updateCountdown(totalQueued = 1, timeRemaining = 5) {
             lastPlayerCount = totalQueued;
             const remaining = Math.max(0, timeRemaining);
 
