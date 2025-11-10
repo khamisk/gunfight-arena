@@ -13,7 +13,7 @@ const COLORS = ['blue', 'red', 'yellow', 'green'];
 let lobby = null;
 let gameRooms = new Map();
 let playerConnections = new Map();
-let playerScores = new Map(); // Persistent scores: name -> score
+let playerStats = new Map(); // Persistent stats: name -> {kills, wins}
 
 function getOrCreateLobby() {
     if (!lobby) {
@@ -35,16 +35,25 @@ class GameRoom {
             players: {},
             bullets: [],
             walls: this.generateWalls(),
+            powerups: [],
             gameTime: 0,
-            winner: null
+            winner: null,
+            zone: {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+                active: false,
+                startTime: null
+            }
         };
 
-        // Better spawn positions for up to 4 players (corners away from walls)
+        // Better spawn positions for up to 4 players (far corners)
         const potentialSpawns = [
-            { x: 120, y: 120 },
-            { x: 680, y: 120 },
-            { x: 120, y: 480 },
-            { x: 680, y: 480 }
+            { x: 100, y: 100 },
+            { x: 700, y: 100 },
+            { x: 100, y: 500 },
+            { x: 700, y: 500 }
         ];
 
         players.forEach((player, idx) => {
@@ -80,8 +89,10 @@ class GameRoom {
                 vx: 0,
                 vy: 0,
                 health: 100,
-                score: 0,
-                lastShot: 0
+                kills: 0,
+                wins: 0,
+                lastShot: 0,
+                powerup: null // 'machinegun' or 'ricochet'
             };
         });
     }
@@ -97,17 +108,42 @@ class GameRoom {
             { x: 735, y: 50, width: 15, height: 500 }
         );
 
-        // Generate 15-25 random walls
-        const wallCount = 15 + Math.floor(Math.random() * 11);
+        // Strategic cover walls - L-shapes and boxes for better cover
+        const coverSpots = [
+            // Top left area
+            { x: 150, y: 150, width: 80, height: 20 },
+            { x: 150, y: 150, width: 20, height: 80 },
 
-        for (let i = 0; i < wallCount; i++) {
+            // Top right area
+            { x: 570, y: 150, width: 80, height: 20 },
+            { x: 630, y: 150, width: 20, height: 80 },
+
+            // Bottom left area
+            { x: 150, y: 430, width: 80, height: 20 },
+            { x: 150, y: 370, width: 20, height: 80 },
+
+            // Bottom right area
+            { x: 570, y: 430, width: 80, height: 20 },
+            { x: 630, y: 370, width: 20, height: 80 },
+
+            // Center cover
+            { x: 350, y: 250, width: 100, height: 20 },
+            { x: 350, y: 330, width: 100, height: 20 },
+            { x: 340, y: 270, width: 20, height: 60 },
+            { x: 440, y: 270, width: 20, height: 60 },
+        ];
+
+        walls.push(...coverSpots);
+
+        // Add some random cover pieces (10-15)
+        const randomCount = 10 + Math.floor(Math.random() * 6);
+        for (let i = 0; i < randomCount; i++) {
             const isHorizontal = Math.random() > 0.5;
-            const width = isHorizontal ? 60 + Math.floor(Math.random() * 100) : 15 + Math.floor(Math.random() * 25);
-            const height = isHorizontal ? 15 + Math.floor(Math.random() * 25) : 60 + Math.floor(Math.random() * 100);
+            const width = isHorizontal ? 50 + Math.floor(Math.random() * 70) : 15 + Math.floor(Math.random() * 20);
+            const height = isHorizontal ? 15 + Math.floor(Math.random() * 20) : 50 + Math.floor(Math.random() * 70);
 
-            // Random position within playable area (avoid borders)
-            const x = 100 + Math.floor(Math.random() * 600);
-            const y = 100 + Math.floor(Math.random() * 400);
+            const x = 120 + Math.floor(Math.random() * 560);
+            const y = 120 + Math.floor(Math.random() * 360);
 
             walls.push({ x, y, width, height });
         }
@@ -169,10 +205,12 @@ class GameRoom {
                 const player = this.gameState.players[playerId];
                 if (player.id !== bullet.playerId && player.health > 0) {
                     if (this.bulletCollidesWithPlayer(bullet, player)) {
-                        player.health -= 100; // One-shot kill
+                        player.health -= 50; // 2-shot kill (100 health / 50 damage)
                         if (player.health <= 0) {
                             const shooter = this.gameState.players[bullet.playerId];
-                            if (shooter) shooter.score += 1;
+                            if (shooter) {
+                                shooter.kills = (shooter.kills || 0) + 1;
+                            }
                         }
                         return false;
                     }
@@ -183,6 +221,44 @@ class GameRoom {
         });
 
         this.gameState.gameTime += deltaTime;
+
+        // Activate zone after 5 seconds
+        if (!this.gameState.zone.active && this.gameState.gameTime >= 5) {
+            this.gameState.zone.active = true;
+            this.gameState.zone.startTime = this.gameState.gameTime;
+        }
+
+        // Update zone - shrink over 30 seconds
+        if (this.gameState.zone.active) {
+            const zoneDuration = 30;
+            const elapsed = this.gameState.gameTime - this.gameState.zone.startTime;
+            const progress = Math.min(elapsed / zoneDuration, 1);
+
+            // Shrink to center (400, 300) - final size 200x200
+            const targetX = 300;
+            const targetY = 250;
+            const targetWidth = 200;
+            const targetHeight = 200;
+
+            this.gameState.zone.x = targetX * progress;
+            this.gameState.zone.y = targetY * progress;
+            this.gameState.zone.width = 800 - (600 * progress);
+            this.gameState.zone.height = 600 - (400 * progress);
+
+            // Damage players outside zone
+            Object.values(this.gameState.players).forEach(player => {
+                if (player.health <= 0) return;
+
+                const inZone = player.x >= this.gameState.zone.x &&
+                    player.x <= this.gameState.zone.x + this.gameState.zone.width &&
+                    player.y >= this.gameState.zone.y &&
+                    player.y <= this.gameState.zone.y + this.gameState.zone.height;
+
+                if (!inZone) {
+                    player.health -= 10 * deltaTime; // 10 damage per second
+                }
+            });
+        }
     }
 
     isCollidingWithWall(player, wall) {
@@ -326,11 +402,15 @@ function broadcastLobbyUpdate() {
         id: lobby.id,
         playerCount: lobby.players.length,
         maxPlayers: 4,
-        players: lobby.players.map(p => ({
-            name: p.name,
-            color: p.color,
-            score: playerScores.get(p.name) || 0
-        })),
+        players: lobby.players.map(p => {
+            const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
+            return {
+                name: p.name,
+                color: p.color,
+                kills: stats.kills,
+                wins: stats.wins
+            };
+        }),
         timeRemaining: lobby.startTime ? Math.max(0, 5 - (Date.now() - lobby.startTime) / 1000) : 5
     } : null;
 
@@ -422,11 +502,20 @@ function startGame(currentLobby) {
 function endGame(room, players, gameLoop) {
     clearInterval(gameLoop);
 
-    // Save scores
+    // Find winner (last alive or most kills)
+    const alivePlayers = Object.values(room.gameState.players).filter(p => p.health > 0);
+    const winner = alivePlayers.length === 1 ? alivePlayers[0] :
+        Object.values(room.gameState.players).reduce((a, b) => (a.kills > b.kills ? a : b));
+
+    // Save stats
     Object.values(room.gameState.players).forEach(player => {
-        const currentScore = playerScores.get(player.name) || 0;
-        playerScores.set(player.name, currentScore + player.score);
-        console.log(`💾 Saved score for ${player.name}: ${currentScore + player.score}`);
+        const stats = playerStats.get(player.name) || { kills: 0, wins: 0 };
+        stats.kills += player.kills || 0;
+        if (winner && player.id === winner.id) {
+            stats.wins += 1;
+        }
+        playerStats.set(player.name, stats);
+        console.log(`💾 Saved stats for ${player.name}: ${stats.kills} kills, ${stats.wins} wins`);
     });
 
     gameRooms.delete(room.roomId);
@@ -437,11 +526,16 @@ function endGame(room, players, gameLoop) {
         if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
             connection.ws.send(JSON.stringify({
                 type: 'game_end',
-                finalScores: Object.values(room.gameState.players).map(p => ({
-                    name: p.name,
-                    score: p.score,
-                    totalScore: playerScores.get(p.name) || 0
-                }))
+                winner: winner ? winner.name : 'None',
+                finalStats: Object.values(room.gameState.players).map(p => {
+                    const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
+                    return {
+                        name: p.name,
+                        kills: p.kills || 0,
+                        totalKills: stats.kills,
+                        totalWins: stats.wins
+                    };
+                })
             }));
         }
     });

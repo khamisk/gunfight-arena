@@ -434,7 +434,7 @@
                             playerCard.className = `player-card ${player.color}`;
                             playerCard.innerHTML = `
                                 <div>${player.name}</div>
-                                <div class="player-score">Score: ${player.score || 0}</div>
+                                <div class="player-score">Kills: ${player.kills || 0} | Wins: ${player.wins || 0}</div>
                             `;
                             queuedPlayersList.appendChild(playerCard);
                         });
@@ -559,6 +559,25 @@
             const scaleX = canvas.width / 800;
             const scaleY = canvas.height / 600;
 
+            // Draw zone (red overlay outside safe zone)
+            if (gameState.zone && gameState.zone.active) {
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+
+                // Top area
+                ctx.fillRect(0, 0, canvas.width, gameState.zone.y * scaleY);
+                // Bottom area
+                ctx.fillRect(0, (gameState.zone.y + gameState.zone.height) * scaleY, canvas.width, canvas.height);
+                // Left area
+                ctx.fillRect(0, gameState.zone.y * scaleY, gameState.zone.x * scaleX, gameState.zone.height * scaleY);
+                // Right area
+                ctx.fillRect((gameState.zone.x + gameState.zone.width) * scaleX, gameState.zone.y * scaleY, canvas.width, gameState.zone.height * scaleY);
+
+                // Draw zone border
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(gameState.zone.x * scaleX, gameState.zone.y * scaleY, gameState.zone.width * scaleX, gameState.zone.height * scaleY);
+            }
+
             ctx.fillStyle = '#444';
             gameState.walls.forEach(wall => {
                 ctx.fillRect(wall.x * scaleX, wall.y * scaleY, wall.width * scaleX, wall.height * scaleY);
@@ -645,10 +664,10 @@
                 nameSpan.style.color = player.color;
                 nameSpan.textContent = player.name;
 
-                const scoreSpan = document.createElement('span');
-                scoreSpan.style.marginLeft = '10px';
-                scoreSpan.style.color = '#aaa';
-                scoreSpan.textContent = `Score: ${player.score}`;
+                const statsSpan = document.createElement('span');
+                statsSpan.style.marginLeft = '10px';
+                statsSpan.style.color = '#aaa';
+                statsSpan.textContent = `Kills: ${player.kills || 0} | Wins: ${player.wins || 0}`;
 
                 const healthBar = document.createElement('div');
                 healthBar.className = 'health-bar';
@@ -658,7 +677,7 @@
                 healthBar.appendChild(healthFill);
 
                 playerDiv.appendChild(nameSpan);
-                playerDiv.appendChild(scoreSpan);
+                playerDiv.appendChild(statsSpan);
                 playerDiv.appendChild(healthBar);
                 playersList.appendChild(playerDiv);
             });
