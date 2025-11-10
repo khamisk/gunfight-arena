@@ -509,6 +509,10 @@
             };
         }
 
+        let lastSentAngle = 0;
+        let lastSentVx = 0;
+        let lastSentVy = 0;
+
         function updateMovement() {
             if (!ws || !gameState) return;
 
@@ -526,12 +530,22 @@
                 vy /= magnitude;
             }
 
-            ws.send(JSON.stringify({
-                type: 'move',
-                vx: vx,
-                vy: vy,
-                angle: mouseAngle
-            }));
+            // Only send update if something changed (use threshold for angle to avoid floating point issues)
+            const angleChanged = Math.abs(mouseAngle - lastSentAngle) > 0.01;
+            const movementChanged = vx !== lastSentVx || vy !== lastSentVy;
+
+            if (angleChanged || movementChanged) {
+                ws.send(JSON.stringify({
+                    type: 'move',
+                    vx: vx,
+                    vy: vy,
+                    angle: mouseAngle
+                }));
+
+                lastSentAngle = mouseAngle;
+                lastSentVx = vx;
+                lastSentVy = vy;
+            }
         }
 
         function render() {
