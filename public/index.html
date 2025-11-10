@@ -411,17 +411,14 @@
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
-            // Game world is always 800x600, canvas might be different size
-            const scaleX = canvas.width / 800;
-            const scaleY = canvas.height / 600;
+            // Convert mouse position from screen space to game world space
+            // Game world is always 800x600, but the canvas display size might be different
+            const gameWorldMouseX = (mouseX / rect.width) * 800;
+            const gameWorldMouseY = (mouseY / rect.height) * 600;
 
-            // Convert player position from game world to canvas pixels
-            const playerScreenX = ourPlayer.x * scaleX;
-            const playerScreenY = ourPlayer.y * scaleY;
-
-            // Calculate angle - this should point from player to mouse cursor
-            const dx = mouseX - playerScreenX;
-            const dy = mouseY - playerScreenY;
+            // Calculate angle from player position to mouse position in game world
+            const dx = gameWorldMouseX - ourPlayer.x;
+            const dy = gameWorldMouseY - ourPlayer.y;
 
             // Only update if we have a valid angle (not at exact same position)
             if (dx !== 0 || dy !== 0) {
