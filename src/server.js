@@ -53,16 +53,16 @@ class GameRoom {
             for (let attempt = 0; attempt < 20; attempt++) {
                 let collides = false;
                 const testPlayer = { x: spawn.x, y: spawn.y };
-                
+
                 for (let wall of this.gameState.walls) {
                     if (this.isCollidingWithWall(testPlayer, wall)) {
                         collides = true;
                         break;
                     }
                 }
-                
+
                 if (!collides) break;
-                
+
                 // Try random position
                 spawn = {
                     x: 100 + Math.random() * 600,
@@ -258,7 +258,7 @@ wss.on('connection', (ws) => {
                 if (!currentLobby.startTime) {
                     currentLobby.startTime = Date.now();
                     console.log(`⏲️ Setting 5 second timer for game start`);
-                    
+
                     // Start timer only once when first player joins
                     currentLobby.startTimer = setTimeout(() => {
                         console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
