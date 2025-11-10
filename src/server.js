@@ -294,6 +294,18 @@ class GameRoom {
 
         this.gameState.gameTime += deltaTime;
 
+        // Check for powerup expiration (5 seconds)
+        Object.values(this.gameState.players).forEach(player => {
+            if (player.powerup && player.powerupTime !== undefined) {
+                const elapsed = this.gameState.gameTime - player.powerupTime;
+                if (elapsed >= 5) {
+                    console.log(`⏰ ${player.name}'s ${player.powerup} powerup expired!`);
+                    player.powerup = null;
+                    player.powerupTime = undefined;
+                }
+            }
+        });
+
         // Activate zone after 5 seconds
         if (!this.gameState.zone.active && this.gameState.gameTime >= 5) {
             this.gameState.zone.active = true;
@@ -556,7 +568,8 @@ function startGame(currentLobby) {
             bullets: room.gameState.bullets,
             walls: room.gameState.walls,
             zone: room.gameState.zone,
-            powerups: room.gameState.powerups
+            powerups: room.gameState.powerups,
+            gameTime: room.gameState.gameTime
         };
 
         players.forEach(player => {

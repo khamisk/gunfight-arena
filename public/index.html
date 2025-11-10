@@ -237,6 +237,32 @@
             background-color: #2ecc71;
             transition: width 0.1s;
         }
+
+        #powerupTimer {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 24px;
+            font-weight: bold;
+            display: none;
+            border: 3px solid;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        #powerupTimer.machinegun {
+            border-color: #2ecc71;
+            color: #2ecc71;
+        }
+
+        #powerupTimer.ricochet {
+            border-color: #e91e63;
+            color: #e91e63;
+        }
     </style>
 </head>
 
@@ -276,6 +302,7 @@
 
     <div id="game-screen">
         <canvas id="gameCanvas"></canvas>
+        <div id="powerupTimer"></div>
         <div class="game-ui">
             <div id="playersList"></div>
         </div>
@@ -289,6 +316,7 @@
         const statusDiv = document.getElementById('status');
         const lobbyScreen = document.getElementById('lobby-screen');
         const gameScreen = document.getElementById('game-screen');
+        const powerupTimerDiv = document.getElementById('powerupTimer');
 
         let selectedColor = 'blue';
         let ws = null;
@@ -566,6 +594,24 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             if (!gameState) return;
+
+            // Update powerup timer for our player
+            const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
+            if (ourPlayer && ourPlayer.powerup && ourPlayer.powerupTime !== undefined && gameState.gameTime !== undefined) {
+                const elapsed = gameState.gameTime - ourPlayer.powerupTime;
+                const remaining = Math.max(0, 5 - elapsed);
+
+                if (remaining > 0) {
+                    powerupTimerDiv.style.display = 'block';
+                    powerupTimerDiv.className = ourPlayer.powerup;
+                    const powerupName = ourPlayer.powerup === 'machinegun' ? 'MACHINE GUN' : 'RICOCHET GUN';
+                    powerupTimerDiv.textContent = `${powerupName}: ${remaining.toFixed(1)}s`;
+                } else {
+                    powerupTimerDiv.style.display = 'none';
+                }
+            } else {
+                powerupTimerDiv.style.display = 'none';
+            }
 
             const scaleX = canvas.width / 800;
             const scaleY = canvas.height / 600;
