@@ -435,8 +435,8 @@ class GameRoom {
         player.lastShot = now;
 
         const bullet = {
-            x: player.x + Math.cos(angle) * 25,
-            y: player.y + Math.sin(angle) * 25,
+            x: player.x, // Spawn from center for perfect aim
+            y: player.y,
             vx: Math.cos(angle) * bulletSpeed,
             vy: Math.sin(angle) * bulletSpeed,
             playerId: playerId,
