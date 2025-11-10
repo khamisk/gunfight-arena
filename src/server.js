@@ -13,13 +13,15 @@ const COLORS = ['blue', 'red', 'yellow', 'green'];
 let lobby = null;
 let gameRooms = new Map();
 let playerConnections = new Map();
+let playerScores = new Map(); // Persistent scores: name -> score
 
 function getOrCreateLobby() {
     if (!lobby) {
         lobby = {
             id: Math.random().toString(36).substr(2, 9),
             players: [],
-            startTimer: null
+            startTimer: null,
+            startTime: null
         };
     }
     return lobby;
@@ -65,12 +67,29 @@ class GameRoom {
 
     generateWalls() {
         return [
-            { x: 200, y: 200, width: 100, height: 20 },
-            { x: 400, y: 250, width: 20, height: 150 },
-            { x: 300, y: 400, width: 150, height: 20 },
-            { x: 100, y: 350, width: 20, height: 100 },
-            { x: 500, y: 100, width: 100, height: 20 },
-            { x: 350, y: 550, width: 150, height: 20 }
+            // Border walls
+            { x: 50, y: 50, width: 700, height: 15 },
+            { x: 50, y: 535, width: 700, height: 15 },
+            { x: 50, y: 50, width: 15, height: 500 },
+            { x: 735, y: 50, width: 15, height: 500 },
+
+            // Center obstacles
+            { x: 200, y: 200, width: 120, height: 20 },
+            { x: 480, y: 200, width: 120, height: 20 },
+            { x: 200, y: 380, width: 120, height: 20 },
+            { x: 480, y: 380, width: 120, height: 20 },
+
+            { x: 350, y: 250, width: 20, height: 100 },
+            { x: 430, y: 250, width: 20, height: 100 },
+
+            // Side cover
+            { x: 120, y: 150, width: 20, height: 80 },
+            { x: 660, y: 150, width: 20, height: 80 },
+            { x: 120, y: 370, width: 20, height: 80 },
+            { x: 660, y: 370, width: 20, height: 80 },
+
+            // Center cross
+            { x: 380, y: 290, width: 40, height: 20 }
         ];
     }
 
@@ -113,7 +132,7 @@ class GameRoom {
                 const player = this.gameState.players[playerId];
                 if (player.id !== bullet.playerId && player.health > 0) {
                     if (this.bulletCollidesWithPlayer(bullet, player)) {
-                        player.health -= 10;
+                        player.health -= 100; // One-shot kill
                         if (player.health <= 0) {
                             const shooter = this.gameState.players[bullet.playerId];
                             if (shooter) shooter.score += 1;
@@ -196,16 +215,24 @@ wss.on('connection', (ws) => {
                 }
 
                 console.log(`Player ${data.name} joined. Lobby count: ${currentLobby.players.length}`);
+
+                // Set start time on first player
+                if (!currentLobby.startTime) {
+                    currentLobby.startTime = Date.now();
+                    console.log(`⏲️ Setting 10 second timer for game start`);
+                }
+
                 broadcastLobbyUpdate();
 
                 // Cancel existing timer if any
                 if (currentLobby.startTimer) {
-                    console.log(`🔄 Clearing existing timer`);
                     clearTimeout(currentLobby.startTimer);
                 }
 
-                // Set new timer
-                console.log(`⏲️ Setting 10 second timer for game start`);
+                // Set new timer based on startTime
+                const elapsed = Date.now() - currentLobby.startTime;
+                const remaining = Math.max(0, 10000 - elapsed);
+
                 currentLobby.startTimer = setTimeout(() => {
                     console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
                     if (currentLobby.players.length >= 1) {
@@ -214,7 +241,7 @@ wss.on('connection', (ws) => {
                     } else {
                         console.log(`❌ No players in lobby, not starting`);
                     }
-                }, 10000);
+                }, remaining);
             }
 
             if (data.type === 'move') {
@@ -224,8 +251,8 @@ wss.on('connection', (ws) => {
                 if (room) {
                     const player = room.gameState.players[playerId];
                     if (player) {
-                        player.vx = data.vx * 200;
-                        player.vy = data.vy * 200;
+                        player.vx = data.vx * 120; // Slower movement
+                        player.vy = data.vy * 120;
                         player.angle = data.angle;
                     }
                 }
@@ -269,7 +296,12 @@ function broadcastLobbyUpdate() {
         id: lobby.id,
         playerCount: lobby.players.length,
         maxPlayers: 4,
-        players: lobby.players.map(p => ({ name: p.name, color: p.color }))
+        players: lobby.players.map(p => ({
+            name: p.name,
+            color: p.color,
+            score: playerScores.get(p.name) || 0
+        })),
+        timeRemaining: lobby.startTime ? Math.max(0, 10 - (Date.now() - lobby.startTime) / 1000) : 10
     } : null;
 
     wss.clients.forEach(client => {
@@ -342,14 +374,49 @@ function startGame(currentLobby) {
         if (frameCount % 60 === 0) {
             console.log(`Game running... frame ${frameCount}, ${players.length} players`);
         }
+
+        // Check if game should end (all but one player dead or time up)
+        const alivePlayers = Object.values(room.gameState.players).filter(p => p.health > 0);
+        if (alivePlayers.length <= 1) {
+            console.log(`🏁 GAME ENDED - Only ${alivePlayers.length} player(s) alive`);
+            endGame(room, players, gameLoop);
+        }
     }, 1000 / 60);
 
     setTimeout(() => {
-        console.log(`🏁 GAME ENDED`);
-        clearInterval(gameLoop);
-        gameRooms.delete(currentLobby.id);
-        broadcastLobbyUpdate();
+        console.log(`🏁 GAME ENDED - Time expired`);
+        endGame(room, players, gameLoop);
     }, 120000);
+}
+
+function endGame(room, players, gameLoop) {
+    clearInterval(gameLoop);
+
+    // Save scores
+    Object.values(room.gameState.players).forEach(player => {
+        const currentScore = playerScores.get(player.name) || 0;
+        playerScores.set(player.name, currentScore + player.score);
+        console.log(`💾 Saved score for ${player.name}: ${currentScore + player.score}`);
+    });
+
+    gameRooms.delete(room.roomId);
+
+    // Send all players back to lobby
+    players.forEach(player => {
+        const connection = playerConnections.get(player.id);
+        if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
+            connection.ws.send(JSON.stringify({
+                type: 'game_end',
+                finalScores: Object.values(room.gameState.players).map(p => ({
+                    name: p.name,
+                    score: p.score,
+                    totalScore: playerScores.get(p.name) || 0
+                }))
+            }));
+        }
+    });
+
+    broadcastLobbyUpdate();
 }
 
 const PORT = process.env.PORT || 3000;
