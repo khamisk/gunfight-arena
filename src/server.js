@@ -256,7 +256,7 @@ class GameRoom {
                 const dy = player.y - powerup.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
-                if (distance < powerup.radius + 10) {
+                if (distance < powerup.radius + 5) {
                     // Player collected powerup
                     player.powerup = powerup.type;
                     player.powerupTime = this.gameState.gameTime;
@@ -375,11 +375,11 @@ class GameRoom {
     }
 
     isCollidingWithWall(player, wall) {
-        // Hitbox radius of 10 for better visibility
-        return player.x + 10 > wall.x &&
-            player.x - 10 < wall.x + wall.width &&
-            player.y + 10 > wall.y &&
-            player.y - 10 < wall.y + wall.height;
+        // Hitbox radius of 5 for tight squeezing through gaps
+        return player.x + 5 > wall.x &&
+            player.x - 5 < wall.x + wall.width &&
+            player.y + 5 > wall.y &&
+            player.y - 5 < wall.y + wall.height;
     }
 
     bulletCollidesWithWall(bullet, wall) {
@@ -393,7 +393,9 @@ class GameRoom {
         const dx = bullet.x - player.x;
         const dy = bullet.y - player.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        return distance < 15; // Matches 10px player radius + 5px bullet size
+        // Use bullet size if available (for cannon), otherwise default
+        const bulletRadius = bullet.size || 5;
+        return distance < (10 + bulletRadius / 2); // 10px player visual + bullet radius
     }
 
     shoot(playerId, angle) {
@@ -433,8 +435,8 @@ class GameRoom {
         player.lastShot = now;
 
         const bullet = {
-            x: player.x + Math.cos(angle) * 15,
-            y: player.y + Math.sin(angle) * 15,
+            x: player.x + Math.cos(angle) * 25,
+            y: player.y + Math.sin(angle) * 25,
             vx: Math.cos(angle) * bulletSpeed,
             vy: Math.sin(angle) * bulletSpeed,
             playerId: playerId,

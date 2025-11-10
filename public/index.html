@@ -744,14 +744,14 @@
 
             gameState.bullets.forEach(bullet => {
                 // Different colors and sizes for different bullet types
-                const bulletSize = bullet.size || 5;
                 const isCannon = bullet.throughWalls;
+                const bulletSize = isCannon ? (bullet.size || 20) : 5; // Only cannon bullets are large
 
                 ctx.shadowBlur = isCannon ? 20 : 10;
                 ctx.shadowColor = isCannon ? '#ff6600' : '#ffff00';
                 ctx.fillStyle = isCannon ? '#ff6600' : '#ffff00';
                 ctx.beginPath();
-                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize * scaleX, 0, Math.PI * 2);
+                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.shadowBlur = 0;
             });
@@ -781,8 +781,8 @@
                     ctx.beginPath();
                     ctx.moveTo(player.x * scaleX, player.y * scaleY);
                     ctx.lineTo(
-                        (player.x + Math.cos(displayAngle) * 15) * scaleX,
-                        (player.y + Math.sin(displayAngle) * 15) * scaleY
+                        (player.x + Math.cos(displayAngle) * 25) * scaleX,
+                        (player.y + Math.sin(displayAngle) * 25) * scaleY
                     );
                     ctx.stroke();
                 }
