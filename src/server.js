@@ -67,7 +67,7 @@ class GameRoom {
 
     generateWalls() {
         const walls = [];
-        
+
         // Border walls (always present)
         walls.push(
             { x: 50, y: 50, width: 700, height: 15 },
@@ -78,16 +78,16 @@ class GameRoom {
 
         // Generate 15-25 random walls
         const wallCount = 15 + Math.floor(Math.random() * 11);
-        
+
         for (let i = 0; i < wallCount; i++) {
             const isHorizontal = Math.random() > 0.5;
             const width = isHorizontal ? 60 + Math.floor(Math.random() * 100) : 15 + Math.floor(Math.random() * 25);
             const height = isHorizontal ? 15 + Math.floor(Math.random() * 25) : 60 + Math.floor(Math.random() * 100);
-            
+
             // Random position within playable area (avoid borders)
             const x = 100 + Math.floor(Math.random() * 600);
             const y = 100 + Math.floor(Math.random() * 400);
-            
+
             walls.push({ x, y, width, height });
         }
 
