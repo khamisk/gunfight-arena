@@ -512,6 +512,7 @@
         let lastSentAngle = 0;
         let lastSentVx = 0;
         let lastSentVy = 0;
+        let lastUpdateTime = 0;
 
         function updateMovement() {
             if (!ws || !gameState) return;
@@ -530,11 +531,14 @@
                 vy /= magnitude;
             }
 
-            // Only send update if something changed (use threshold for angle to avoid floating point issues)
-            const angleChanged = Math.abs(mouseAngle - lastSentAngle) > 0.01;
-            const movementChanged = vx !== lastSentVx || vy !== lastSentVy;
+            const now = Date.now();
+            const timeSinceLastUpdate = now - lastUpdateTime;
 
-            if (angleChanged || movementChanged) {
+            // Send update if movement changed OR if enough time passed (50ms throttle for angle updates)
+            const movementChanged = vx !== lastSentVx || vy !== lastSentVy;
+            const shouldUpdate = movementChanged || timeSinceLastUpdate > 50;
+
+            if (shouldUpdate) {
                 ws.send(JSON.stringify({
                     type: 'move',
                     vx: vx,
@@ -545,6 +549,7 @@
                 lastSentAngle = mouseAngle;
                 lastSentVx = vx;
                 lastSentVy = vy;
+                lastUpdateTime = now;
             }
         }
 
