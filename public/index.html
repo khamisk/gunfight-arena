@@ -360,16 +360,18 @@
             const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
             if (!ourPlayer) return;
 
-            // Calculate scale
+            // Calculate scale (game world is 800x600)
             const scaleX = canvas.width / 800;
             const scaleY = canvas.height / 600;
 
-            // Player position on screen
-            const playerScreenX = ourPlayer.x * scaleX;
-            const playerScreenY = ourPlayer.y * scaleY;
+            // Player position on canvas (in pixels)
+            const playerCanvasX = ourPlayer.x * scaleX;
+            const playerCanvasY = ourPlayer.y * scaleY;
 
-            // Calculate angle from player to mouse
-            mouseAngle = Math.atan2(mouseY - playerScreenY, mouseX - playerScreenX);
+            // Calculate angle from player position to mouse position
+            const dx = mouseX - playerCanvasX;
+            const dy = mouseY - playerCanvasY;
+            mouseAngle = Math.atan2(dy, dx);
         });
 
         canvas.addEventListener('click', () => {
@@ -409,14 +411,18 @@
 
                 if (data.type === 'lobby_update') {
                     console.log('👥 Players in lobby:', data.playerCount);
-                    updateCountdown(data.playerCount, data.timeRemaining);
+                    const timeRemaining = data.lobby ? data.lobby.timeRemaining : 10;
+                    updateCountdown(data.playerCount, timeRemaining);
 
                     // Update queued players list
                     const queuedPlayersList = document.getElementById('queuedPlayersList');
                     queuedPlayersList.innerHTML = '';
 
-                    if (data.players && data.players.length > 0) {
-                        data.players.forEach(player => {
+                    const players = data.lobby && data.lobby.players ? data.lobby.players : [];
+                    console.log('Players to display:', players);
+                    
+                    if (players.length > 0) {
+                        players.forEach(player => {
                             const playerCard = document.createElement('div');
                             playerCard.className = `player-card ${player.color}`;
                             playerCard.innerHTML = `

@@ -66,31 +66,32 @@ class GameRoom {
     }
 
     generateWalls() {
-        return [
-            // Border walls
+        const walls = [];
+        
+        // Border walls (always present)
+        walls.push(
             { x: 50, y: 50, width: 700, height: 15 },
             { x: 50, y: 535, width: 700, height: 15 },
             { x: 50, y: 50, width: 15, height: 500 },
-            { x: 735, y: 50, width: 15, height: 500 },
+            { x: 735, y: 50, width: 15, height: 500 }
+        );
 
-            // Center obstacles
-            { x: 200, y: 200, width: 120, height: 20 },
-            { x: 480, y: 200, width: 120, height: 20 },
-            { x: 200, y: 380, width: 120, height: 20 },
-            { x: 480, y: 380, width: 120, height: 20 },
+        // Generate 15-25 random walls
+        const wallCount = 15 + Math.floor(Math.random() * 11);
+        
+        for (let i = 0; i < wallCount; i++) {
+            const isHorizontal = Math.random() > 0.5;
+            const width = isHorizontal ? 60 + Math.floor(Math.random() * 100) : 15 + Math.floor(Math.random() * 25);
+            const height = isHorizontal ? 15 + Math.floor(Math.random() * 25) : 60 + Math.floor(Math.random() * 100);
+            
+            // Random position within playable area (avoid borders)
+            const x = 100 + Math.floor(Math.random() * 600);
+            const y = 100 + Math.floor(Math.random() * 400);
+            
+            walls.push({ x, y, width, height });
+        }
 
-            { x: 350, y: 250, width: 20, height: 100 },
-            { x: 430, y: 250, width: 20, height: 100 },
-
-            // Side cover
-            { x: 120, y: 150, width: 20, height: 80 },
-            { x: 660, y: 150, width: 20, height: 80 },
-            { x: 120, y: 370, width: 20, height: 80 },
-            { x: 660, y: 370, width: 20, height: 80 },
-
-            // Center cross
-            { x: 380, y: 290, width: 40, height: 20 }
-        ];
+        return walls;
     }
 
     update(deltaTime) {
@@ -229,9 +230,9 @@ wss.on('connection', (ws) => {
                     clearTimeout(currentLobby.startTimer);
                 }
 
-                // Set new timer based on startTime
+                // Set new timer based on startTime (5 seconds)
                 const elapsed = Date.now() - currentLobby.startTime;
-                const remaining = Math.max(0, 10000 - elapsed);
+                const remaining = Math.max(0, 5000 - elapsed);
 
                 currentLobby.startTimer = setTimeout(() => {
                     console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
@@ -301,7 +302,7 @@ function broadcastLobbyUpdate() {
             color: p.color,
             score: playerScores.get(p.name) || 0
         })),
-        timeRemaining: lobby.startTime ? Math.max(0, 10 - (Date.now() - lobby.startTime) / 1000) : 10
+        timeRemaining: lobby.startTime ? Math.max(0, 5 - (Date.now() - lobby.startTime) / 1000) : 5
     } : null;
 
     wss.clients.forEach(client => {
