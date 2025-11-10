@@ -249,6 +249,7 @@
         let mouseAngle = 0;
         let joinTime = null;
         let countdownInterval = null;
+        let lastPlayerCount = 0;
 
         function resizeCanvas() {
             canvas.width = window.innerWidth;
@@ -275,11 +276,20 @@
             joinGame(name, selectedColor);
         });
 
+        // Auto-join if name is preset (for testing)
         playerNameInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 joinBtn.click();
             }
         });
+
+        // Auto-join after 1 second for testing if URL has ?test=1
+        if (window.location.search.includes('test=1')) {
+            setTimeout(() => {
+                playerNameInput.value = 'TestPlayer' + Math.floor(Math.random() * 1000);
+                joinBtn.click();
+            }, 500);
+        }
 
         window.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
@@ -317,11 +327,13 @@
             ws = new WebSocket(`${protocol}//${window.location.host}`);
 
             ws.onopen = () => {
+                console.log('✅ WebSocket connected!');
                 ws.send(JSON.stringify({
                     type: 'join_lobby',
                     name: name,
                     color: color
                 }));
+                console.log(`📤 Sent join_lobby: ${name}`);
                 playerId = Math.random().toString(36).substr(2, 9);
                 playerColor = color;
                 startCountdown();
@@ -329,19 +341,32 @@
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
+                console.log('📨 Received:', data.type);
 
                 if (data.type === 'lobby_update') {
-                    const totalQueued = data.lobbies.reduce((sum, l) => sum + l.playerCount, 0);
-                    updateCountdown(totalQueued);
+                    console.log('👥 Players in lobby:', data.playerCount);
+                    updateCountdown(data.playerCount);
                 }
 
                 if (data.type === 'game_state') {
-                    if (countdownInterval) clearInterval(countdownInterval);
-                    gameState = data.state;
-                    if (gameScreen.style.display === 'none') {
-                        lobbyScreen.style.display = 'none';
-                        gameScreen.style.display = 'block';
+                    console.log('🎮 GAME STATE RECEIVED! Switching to game screen...');
+
+                    // Stop countdown
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval);
+                        countdownInterval = null;
                     }
+
+                    // Store game state
+                    gameState = data.state;
+                    console.log('Players in game:', Object.keys(data.state.players).length);
+
+                    // Force screen switch
+                    lobbyScreen.style.display = 'none';
+                    gameScreen.style.display = 'block';
+                    console.log('✅ Game screen visible!');
+
+                    // Start rendering
                     render();
                 }
             };
@@ -406,38 +431,62 @@
             });
 
             gameState.bullets.forEach(bullet => {
+                // Glowing bullet effect
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ffff00';
                 ctx.fillStyle = '#ffff00';
                 ctx.beginPath();
-                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, 4, 0, Math.PI * 2);
+                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, 5, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.shadowBlur = 0;
             });
 
             Object.values(gameState.players).forEach(player => {
-                ctx.fillStyle = player.color;
+                if (player.health <= 0) {
+                    // Dead player - show as gray
+                    ctx.fillStyle = '#666';
+                    ctx.globalAlpha = 0.5;
+                } else {
+                    ctx.fillStyle = player.color;
+                    ctx.globalAlpha = 1.0;
+                }
+
                 ctx.beginPath();
                 ctx.arc(player.x * scaleX, player.y * scaleY, 15, 0, Math.PI * 2);
                 ctx.fill();
 
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(player.x * scaleX, player.y * scaleY);
-                ctx.lineTo(
-                    (player.x + Math.cos(player.angle) * 20) * scaleX,
-                    (player.y + Math.sin(player.angle) * 20) * scaleY
-                );
-                ctx.stroke();
+                if (player.health > 0) {
+                    // Draw gun direction
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 3;
+                    ctx.globalAlpha = 1.0;
+                    ctx.beginPath();
+                    ctx.moveTo(player.x * scaleX, player.y * scaleY);
+                    ctx.lineTo(
+                        (player.x + Math.cos(player.angle) * 20) * scaleX,
+                        (player.y + Math.sin(player.angle) * 20) * scaleY
+                    );
+                    ctx.stroke();
+                }
 
+                // Player name
                 ctx.fillStyle = '#fff';
-                ctx.font = '12px Arial';
+                ctx.globalAlpha = 1.0;
+                ctx.font = 'bold 14px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(player.name, player.x * scaleX, (player.y + 30) * scaleY);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 3;
+                ctx.strokeText(player.name, player.x * scaleX, (player.y + 32) * scaleY);
+                ctx.fillText(player.name, player.x * scaleX, (player.y + 32) * scaleY);
 
-                ctx.fillStyle = player.health > 50 ? '#2ecc71' : player.health > 25 ? '#f39c12' : '#e74c3c';
+                // Health bar background
+                ctx.fillStyle = '#333';
                 ctx.fillRect((player.x - 15) * scaleX, (player.y - 30) * scaleY, 30 * scaleX, 5 * scaleY);
-                ctx.fillStyle = '#fff';
-                ctx.font = '10px Arial';
-                ctx.fillText(Math.max(0, player.health), player.x * scaleX, (player.y - 20) * scaleY);
+
+                // Health bar fill
+                const healthPercent = Math.max(0, player.health) / 100;
+                ctx.fillStyle = player.health > 50 ? '#2ecc71' : player.health > 25 ? '#f39c12' : '#e74c3c';
+                ctx.fillRect((player.x - 15) * scaleX, (player.y - 30) * scaleY, 30 * healthPercent * scaleX, 5 * scaleY);
             });
 
             updatePlayersList();
@@ -478,11 +527,12 @@
         function startCountdown() {
             if (countdownInterval) clearInterval(countdownInterval);
             countdownInterval = setInterval(() => {
-                updateCountdown();
+                updateCountdown(lastPlayerCount);
             }, 100);
         }
 
         function updateCountdown(totalQueued = 1) {
+            lastPlayerCount = totalQueued;
             const elapsed = (Date.now() - joinTime) / 1000;
             const remaining = Math.max(0, 10 - elapsed);
 

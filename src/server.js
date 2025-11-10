@@ -10,9 +10,20 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static(path.join(__dirname, '../public')));
 
 const COLORS = ['blue', 'red', 'yellow', 'green'];
-let lobbies = new Map();
+let lobby = null;
 let gameRooms = new Map();
 let playerConnections = new Map();
+
+function getOrCreateLobby() {
+    if (!lobby) {
+        lobby = {
+            id: Math.random().toString(36).substr(2, 9),
+            players: [],
+            startTimer: null
+        };
+    }
+    return lobby;
+}
 
 class GameRoom {
     constructor(roomId, players) {
@@ -26,18 +37,28 @@ class GameRoom {
             winner: null
         };
 
+        // Better spawn positions for up to 4 players
+        const spawnPositions = [
+            { x: 100, y: 100 },
+            { x: 700, y: 100 },
+            { x: 100, y: 500 },
+            { x: 700, y: 500 }
+        ];
+
         players.forEach((player, idx) => {
+            const spawn = spawnPositions[idx % 4];
             this.gameState.players[player.id] = {
                 id: player.id,
                 name: player.name,
                 color: player.color,
-                x: 100 + idx * 150,
-                y: 100 + idx * 150,
+                x: spawn.x,
+                y: spawn.y,
                 angle: 0,
                 vx: 0,
                 vy: 0,
                 health: 100,
-                score: 0
+                score: 0,
+                lastShot: 0
             };
         });
     }
@@ -126,17 +147,22 @@ class GameRoom {
         const dx = bullet.x - player.x;
         const dy = bullet.y - player.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        return distance < 25;
+        return distance < 18; // Better hit detection
     }
 
     shoot(playerId, angle) {
         const player = this.gameState.players[playerId];
         if (!player || player.health <= 0) return;
 
-        const speed = 400;
+        // Cooldown check - 0.5 second between shots
+        const now = Date.now();
+        if (now - player.lastShot < 500) return;
+        player.lastShot = now;
+
+        const speed = 500;
         const bullet = {
-            x: player.x + Math.cos(angle) * 20,
-            y: player.y + Math.sin(angle) * 20,
+            x: player.x + Math.cos(angle) * 25,
+            y: player.y + Math.sin(angle) * 25,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
             playerId: playerId
@@ -148,6 +174,7 @@ class GameRoom {
 wss.on('connection', (ws) => {
     let playerId = Math.random().toString(36).substr(2, 9);
     let playerInfo = null;
+    let currentLobby = null;
 
     ws.on('message', (message) => {
         try {
@@ -159,28 +186,35 @@ wss.on('connection', (ws) => {
                     name: data.name,
                     color: data.color
                 };
-                playerConnections.set(playerId, ws);
+                playerConnections.set(playerId, { ws, playerInfo });
 
-                let lobby = Array.from(lobbies.values()).find(l => l.players.length < 4);
-                if (!lobby) {
-                    lobby = {
-                        id: Math.random().toString(36).substr(2, 9),
-                        players: []
-                    };
-                    lobbies.set(lobby.id, lobby);
+                currentLobby = getOrCreateLobby();
+
+                // Only add if not already in lobby
+                if (!currentLobby.players.find(p => p.id === playerId)) {
+                    currentLobby.players.push(playerInfo);
                 }
 
-                lobby.players.push(playerInfo);
-
+                console.log(`Player ${data.name} joined. Lobby count: ${currentLobby.players.length}`);
                 broadcastLobbyUpdate();
 
-                if (!lobby.startTimer) {
-                    lobby.startTimer = setTimeout(() => {
-                        if (lobby.players.length >= 1) {
-                            startGame(lobby);
-                        }
-                    }, 10000);
+                // Cancel existing timer if any
+                if (currentLobby.startTimer) {
+                    console.log(`🔄 Clearing existing timer`);
+                    clearTimeout(currentLobby.startTimer);
                 }
+
+                // Set new timer
+                console.log(`⏲️ Setting 10 second timer for game start`);
+                currentLobby.startTimer = setTimeout(() => {
+                    console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
+                    if (currentLobby.players.length >= 1) {
+                        startGame(currentLobby);
+                        lobby = null; // Reset for next game
+                    } else {
+                        console.log(`❌ No players in lobby, not starting`);
+                    }
+                }, 10000);
             }
 
             if (data.type === 'move') {
@@ -212,41 +246,70 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
+        console.log(`Player disconnected. ID: ${playerId}`);
         playerConnections.delete(playerId);
-        lobbies.forEach((lobby, lobbyId) => {
-            lobby.players = lobby.players.filter(p => p.id !== playerId);
-            if (lobby.players.length === 0) {
-                lobbies.delete(lobbyId);
+
+        if (currentLobby) {
+            currentLobby.players = currentLobby.players.filter(p => p.id !== playerId);
+            console.log(`Lobby now has ${currentLobby.players.length} players`);
+
+            if (currentLobby.players.length === 0) {
+                if (currentLobby.startTimer) {
+                    clearTimeout(currentLobby.startTimer);
+                }
+                lobby = null;
             }
-        });
+        }
         broadcastLobbyUpdate();
     });
 });
 
 function broadcastLobbyUpdate() {
-    const lobbyData = Array.from(lobbies.values()).map(lobby => ({
+    const lobbyData = lobby ? {
         id: lobby.id,
         playerCount: lobby.players.length,
-        maxPlayers: 4
-    }));
+        maxPlayers: 4,
+        players: lobby.players.map(p => ({ name: p.name, color: p.color }))
+    } : null;
 
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
                 type: 'lobby_update',
-                lobbies: lobbyData
+                lobby: lobbyData,
+                playerCount: lobbyData ? lobbyData.playerCount : 0
             }));
         }
     });
 }
 
-function startGame(lobby) {
-    const room = new GameRoom(lobby.id, lobby.players);
-    gameRooms.set(lobby.id, room);
-    lobbies.delete(lobby.id);
+function startGame(currentLobby) {
+    console.log(`🎮 GAME STARTING with ${currentLobby.players.length} players`);
+    const room = new GameRoom(currentLobby.id, currentLobby.players);
+    gameRooms.set(currentLobby.id, room);
 
-    const players = lobby.players;
+    const players = currentLobby.players;
     let lastUpdateTime = Date.now();
+    let frameCount = 0;
+
+    // Send initial game state to all players immediately
+    console.log(`📤 Sending game start to ${players.length} players`);
+    players.forEach(player => {
+        const connection = playerConnections.get(player.id);
+        if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
+            try {
+                connection.ws.send(JSON.stringify({
+                    type: 'game_state',
+                    state: room.gameState
+                }));
+                console.log(`✅ Game state sent to ${player.name}`);
+            } catch (e) {
+                console.error(`Error sending initial state to ${player.name}:`, e);
+            }
+        } else {
+            console.log(`❌ Cannot reach ${player.name} - connection not ready`);
+        }
+    });
 
     const gameLoop = setInterval(() => {
         const now = Date.now();
@@ -262,19 +325,29 @@ function startGame(lobby) {
         };
 
         players.forEach(player => {
-            const conn = playerConnections.get(player.id);
-            if (conn && conn.readyState === WebSocket.OPEN) {
-                conn.send(JSON.stringify({
-                    type: 'game_state',
-                    state: gameState
-                }));
+            const connection = playerConnections.get(player.id);
+            if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
+                try {
+                    connection.ws.send(JSON.stringify({
+                        type: 'game_state',
+                        state: gameState
+                    }));
+                } catch (e) {
+                    console.error(`Error sending to player ${player.name}:`, e);
+                }
             }
         });
+
+        frameCount++;
+        if (frameCount % 60 === 0) {
+            console.log(`Game running... frame ${frameCount}, ${players.length} players`);
+        }
     }, 1000 / 60);
 
     setTimeout(() => {
+        console.log(`🏁 GAME ENDED`);
         clearInterval(gameLoop);
-        gameRooms.delete(lobby.id);
+        gameRooms.delete(currentLobby.id);
         broadcastLobbyUpdate();
     }, 120000);
 }
