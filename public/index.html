@@ -457,8 +457,15 @@
 
                 if (data.type === 'lobby_update') {
                     console.log('👥 Players in lobby:', data.playerCount);
-                    const timeRemaining = data.lobby ? data.lobby.timeRemaining : 10;
-                    updateCountdown(data.playerCount, timeRemaining);
+                    const timeRemaining = data.lobby ? data.lobby.timeRemaining : 5;
+
+                    // Start countdown timer if not already running and there's time remaining
+                    if (timeRemaining > 0 && timeRemaining < 5 && !countdownInterval) {
+                        startCountdownTimer(timeRemaining, data.playerCount);
+                    } else if (timeRemaining >= 5) {
+                        // Reset if timer hasn't started yet
+                        updateCountdown(data.playerCount, timeRemaining);
+                    }
 
                     // Update queued players list
                     const queuedPlayersList = document.getElementById('queuedPlayersList');
@@ -695,7 +702,7 @@
                 }
 
                 ctx.beginPath();
-                ctx.arc(player.x * scaleX, player.y * scaleY, 5, 0, Math.PI * 2); // Super tight - 5 pixel radius
+                ctx.arc(player.x * scaleX, player.y * scaleY, 10, 0, Math.PI * 2); // 10 pixel radius for better visibility
                 ctx.fill();
 
                 if (player.health > 0) {
@@ -709,8 +716,8 @@
                     ctx.beginPath();
                     ctx.moveTo(player.x * scaleX, player.y * scaleY);
                     ctx.lineTo(
-                        (player.x + Math.cos(displayAngle) * 20) * scaleX,
-                        (player.y + Math.sin(displayAngle) * 20) * scaleY
+                        (player.x + Math.cos(displayAngle) * 25) * scaleX,
+                        (player.y + Math.sin(displayAngle) * 25) * scaleY
                     );
                     ctx.stroke();
                 }
@@ -785,7 +792,26 @@
             }, 100);
         }
 
-        function updateCountdown(totalQueued = 1, timeRemaining = 10) {
+        function startCountdownTimer(initialTime, playerCount) {
+            let timeLeft = initialTime;
+            const startTime = Date.now();
+
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            countdownInterval = setInterval(() => {
+                const elapsed = (Date.now() - startTime) / 1000;
+                timeLeft = Math.max(0, initialTime - elapsed);
+
+                updateCountdown(playerCount, timeLeft);
+
+                if (timeLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+            }, 100); // Update every 100ms for smooth countdown
+        }
+
+        function updateCountdown(totalQueued = 1, timeRemaining = 5) {
             lastPlayerCount = totalQueued;
             const remaining = Math.max(0, timeRemaining);
 
