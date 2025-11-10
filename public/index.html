@@ -381,6 +381,17 @@
             }
         });
 
+        let isMouseDown = false;
+
+        canvas.addEventListener('mousedown', () => {
+            isMouseDown = true;
+        });
+
+        window.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+
+        // Clicking still works for single shots
         canvas.addEventListener('click', () => {
             if (ws && gameState) {
                 ws.send(JSON.stringify({
@@ -680,6 +691,14 @@
 
             updatePlayersList();
             updateMovement();
+
+            // Continuous firing when mouse is held down
+            if (isMouseDown && ws && gameState) {
+                ws.send(JSON.stringify({
+                    type: 'shoot',
+                    angle: mouseAngle
+                }));
+            }
         }
 
         function updatePlayersList() {
