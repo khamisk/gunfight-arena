@@ -591,15 +591,18 @@
                 ctx.fill();
 
                 if (player.health > 0) {
-                    // Draw gun direction
+                    // Draw gun direction - use local mouseAngle for our player to avoid jerking
+                    const isOurPlayer = player.color === playerColor;
+                    const displayAngle = isOurPlayer ? mouseAngle : player.angle;
+
                     ctx.strokeStyle = '#fff';
                     ctx.lineWidth = 3;
                     ctx.globalAlpha = 1.0;
                     ctx.beginPath();
                     ctx.moveTo(player.x * scaleX, player.y * scaleY);
                     ctx.lineTo(
-                        (player.x + Math.cos(player.angle) * 20) * scaleX,
-                        (player.y + Math.sin(player.angle) * 20) * scaleY
+                        (player.x + Math.cos(displayAngle) * 20) * scaleX,
+                        (player.y + Math.sin(displayAngle) * 20) * scaleY
                     );
                     ctx.stroke();
                 }
