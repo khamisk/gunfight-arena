@@ -101,7 +101,7 @@ class GameRoom {
     }
 
     spawnPowerup() {
-        const powerupTypes = ['machinegun', 'ricochet'];
+        const powerupTypes = ['machinegun', 'ricochet', 'speed', 'noclip', 'cannon', 'gravity'];
         const type = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
 
         // Random position avoiding walls
@@ -196,33 +196,59 @@ class GameRoom {
         Object.values(this.gameState.players).forEach(player => {
             if (player.health <= 0) return;
 
+            // Check if any player has active gravity powerup
+            const gravityPlayer = Object.values(this.gameState.players).find(p =>
+                p.powerup === 'gravity' && p.powerupTime !== undefined &&
+                (this.gameState.gameTime - p.powerupTime) < 5
+            );
+
+            // Apply gravity effect to all players except the one with the powerup
+            if (gravityPlayer && player.id !== gravityPlayer.id) {
+                // Pull player downwards (override their velocity)
+                player.vy = 300; // Strong downward force
+            }
+
             // Store old position
             const oldX = player.x;
             const oldY = player.y;
 
+            // Check if player has noclip
+            const hasNoclip = player.powerup === 'noclip' && player.powerupTime !== undefined &&
+                (this.gameState.gameTime - player.powerupTime) < 5;
+
             // Try moving X
             player.x += player.vx * deltaTime;
-            let xCollision = false;
-            this.gameState.walls.forEach(wall => {
-                if (this.isCollidingWithWall(player, wall)) {
-                    xCollision = true;
-                }
-            });
-            if (xCollision) player.x = oldX;
+            if (!hasNoclip) {
+                let xCollision = false;
+                this.gameState.walls.forEach(wall => {
+                    if (this.isCollidingWithWall(player, wall)) {
+                        xCollision = true;
+                    }
+                });
+                if (xCollision) player.x = oldX;
+            }
 
             // Try moving Y
             player.y += player.vy * deltaTime;
-            let yCollision = false;
-            this.gameState.walls.forEach(wall => {
-                if (this.isCollidingWithWall(player, wall)) {
-                    yCollision = true;
-                }
-            });
-            if (yCollision) player.y = oldY;
+            if (!hasNoclip) {
+                let yCollision = false;
+                this.gameState.walls.forEach(wall => {
+                    if (this.isCollidingWithWall(player, wall)) {
+                        yCollision = true;
+                    }
+                });
+                if (yCollision) player.y = oldY;
+            }
 
-            // Clamp to map bounds
-            player.x = Math.max(20, Math.min(mapWidth - 20, player.x));
-            player.y = Math.max(20, Math.min(mapHeight - 20, player.y));
+            // Clamp to map bounds (unless noclip is active)
+            if (!hasNoclip) {
+                player.x = Math.max(20, Math.min(mapWidth - 20, player.x));
+                player.y = Math.max(20, Math.min(mapHeight - 20, player.y));
+            } else {
+                // With noclip, allow movement outside but keep somewhat reasonable bounds
+                player.x = Math.max(-100, Math.min(mapWidth + 100, player.x));
+                player.y = Math.max(-100, Math.min(mapHeight + 100, player.y));
+            }
 
             // Check powerup collection
             this.gameState.powerups = this.gameState.powerups.filter(powerup => {
@@ -249,26 +275,29 @@ class GameRoom {
                 return false;
             }
 
-            for (let wall of this.gameState.walls) {
-                if (this.bulletCollidesWithWall(bullet, wall)) {
-                    if (bullet.ricochet && bullet.bounces > 0) {
-                        // Calculate bounce
-                        const centerX = wall.x + wall.width / 2;
-                        const centerY = wall.y + wall.height / 2;
-                        const hitFromSide = Math.abs(bullet.x - centerX) / wall.width > Math.abs(bullet.y - centerY) / wall.height;
+            // Only check wall collisions if bullet doesn't go through walls
+            if (!bullet.throughWalls) {
+                for (let wall of this.gameState.walls) {
+                    if (this.bulletCollidesWithWall(bullet, wall)) {
+                        if (bullet.ricochet && bullet.bounces > 0) {
+                            // Calculate bounce
+                            const centerX = wall.x + wall.width / 2;
+                            const centerY = wall.y + wall.height / 2;
+                            const hitFromSide = Math.abs(bullet.x - centerX) / wall.width > Math.abs(bullet.y - centerY) / wall.height;
 
-                        if (hitFromSide) {
-                            bullet.vx = -bullet.vx; // Bounce horizontally
+                            if (hitFromSide) {
+                                bullet.vx = -bullet.vx; // Bounce horizontally
+                            } else {
+                                bullet.vy = -bullet.vy; // Bounce vertically
+                            }
+
+                            bullet.bounces--;
+                            // Move bullet away from wall to prevent re-collision
+                            bullet.x += bullet.vx * deltaTime * 2;
+                            bullet.y += bullet.vy * deltaTime * 2;
                         } else {
-                            bullet.vy = -bullet.vy; // Bounce vertically
+                            return false;
                         }
-
-                        bullet.bounces--;
-                        // Move bullet away from wall to prevent re-collision
-                        bullet.x += bullet.vx * deltaTime * 2;
-                        bullet.y += bullet.vy * deltaTime * 2;
-                    } else {
-                        return false;
                     }
                 }
             }
@@ -375,6 +404,9 @@ class GameRoom {
         let cooldown = 500; // Default cooldown
         let damage = 50; // Default damage (2-shot kill)
         let ricochet = false;
+        let throughWalls = false;
+        let bulletSpeed = 900;
+        let bulletSize = 5;
 
         // Check for active powerup
         if (player.powerup) {
@@ -385,6 +417,14 @@ class GameRoom {
                 cooldown = 80; // 12.5 shots per second (very fast spray)
                 damage = 12.5; // 8 shots to kill
                 ricochet = true;
+            } else if (player.powerup === 'cannon') {
+                cooldown = 1000; // 1 shot per second
+                damage = 100; // 1-shot kill
+                throughWalls = true;
+                bulletSpeed = 400; // Slower
+                bulletSize = 20; // HUGE cannonball
+            } else if (player.powerup === 'speed' || player.powerup === 'noclip' || player.powerup === 'gravity') {
+                // These powerups don't affect shooting
             }
         }
 
@@ -392,16 +432,17 @@ class GameRoom {
         if (now - player.lastShot < cooldown) return;
         player.lastShot = now;
 
-        const speed = 900;
         const bullet = {
-            x: player.x + Math.cos(angle) * 25,
-            y: player.y + Math.sin(angle) * 25,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
+            x: player.x + Math.cos(angle) * 15,
+            y: player.y + Math.sin(angle) * 15,
+            vx: Math.cos(angle) * bulletSpeed,
+            vy: Math.sin(angle) * bulletSpeed,
             playerId: playerId,
             damage: damage,
             ricochet: ricochet,
-            bounces: ricochet ? 3 : 0 // Ricochet bullets can bounce 3 times
+            bounces: ricochet ? 3 : 0,
+            throughWalls: throughWalls,
+            size: bulletSize
         };
         this.gameState.bullets.push(bullet);
     }
@@ -460,8 +501,13 @@ wss.on('connection', (ws) => {
                 if (room) {
                     const player = room.gameState.players[playerId];
                     if (player) {
-                        player.vx = data.vx * 120; // Slower movement
-                        player.vy = data.vy * 120;
+                        // Check if player has speed powerup
+                        const hasSpeed = player.powerup === 'speed' && player.powerupTime !== undefined &&
+                            (room.gameState.gameTime - player.powerupTime) < 5;
+
+                        const speedMultiplier = hasSpeed ? 300 : 120; // 2.5x faster with speed powerup
+                        player.vx = data.vx * speedMultiplier;
+                        player.vy = data.vy * speedMultiplier;
                         player.angle = data.angle;
                     }
                 }

@@ -263,6 +263,26 @@
             border-color: #e91e63;
             color: #e91e63;
         }
+
+        #powerupTimer.speed {
+            border-color: #00ffff;
+            color: #00ffff;
+        }
+
+        #powerupTimer.noclip {
+            border-color: #ffffff;
+            color: #ffffff;
+        }
+
+        #powerupTimer.cannon {
+            border-color: #ff6600;
+            color: #ff6600;
+        }
+
+        #powerupTimer.gravity {
+            border-color: #9900ff;
+            color: #9900ff;
+        }
     </style>
 </head>
 
@@ -614,7 +634,18 @@
                 if (remaining > 0) {
                     powerupTimerDiv.style.display = 'block';
                     powerupTimerDiv.className = ourPlayer.powerup;
-                    const powerupName = ourPlayer.powerup === 'machinegun' ? 'MACHINE GUN' : 'RICOCHET GUN';
+
+                    let powerupName;
+                    switch (ourPlayer.powerup) {
+                        case 'machinegun': powerupName = 'MACHINE GUN'; break;
+                        case 'ricochet': powerupName = 'RICOCHET GUN'; break;
+                        case 'speed': powerupName = 'SPEED BOOST'; break;
+                        case 'noclip': powerupName = 'NO CLIP'; break;
+                        case 'cannon': powerupName = 'CANNON'; break;
+                        case 'gravity': powerupName = 'GRAVITY WELL'; break;
+                        default: powerupName = ourPlayer.powerup.toUpperCase();
+                    }
+
                     powerupTimerDiv.textContent = `${powerupName}: ${remaining.toFixed(1)}s`;
                 } else {
                     powerupTimerDiv.style.display = 'none';
@@ -659,15 +690,41 @@
                     // Pulsing effect
                     const pulse = Math.sin(Date.now() / 200) * 2 + 15;
 
-                    if (powerup.type === 'machinegun') {
-                        ctx.fillStyle = '#00ff00'; // Green
-                        ctx.shadowBlur = 15;
-                        ctx.shadowColor = '#00ff00';
-                    } else if (powerup.type === 'ricochet') {
-                        ctx.fillStyle = '#ff00ff'; // Magenta
-                        ctx.shadowBlur = 15;
-                        ctx.shadowColor = '#ff00ff';
+                    // Color and label based on powerup type
+                    let color, label;
+                    switch (powerup.type) {
+                        case 'machinegun':
+                            color = '#00ff00'; // Green
+                            label = 'MG';
+                            break;
+                        case 'ricochet':
+                            color = '#ff00ff'; // Magenta
+                            label = 'RC';
+                            break;
+                        case 'speed':
+                            color = '#00ffff'; // Cyan
+                            label = 'SPD';
+                            break;
+                        case 'noclip':
+                            color = '#ffffff'; // White
+                            label = 'NC';
+                            break;
+                        case 'cannon':
+                            color = '#ff6600'; // Orange
+                            label = 'CAN';
+                            break;
+                        case 'gravity':
+                            color = '#9900ff'; // Purple
+                            label = 'GRAV';
+                            break;
+                        default:
+                            color = '#ffffff';
+                            label = '?';
                     }
+
+                    ctx.fillStyle = color;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = color;
 
                     ctx.beginPath();
                     ctx.arc(powerup.x * scaleX, powerup.y * scaleY, pulse, 0, Math.PI * 2);
@@ -678,18 +735,23 @@
                     ctx.fillStyle = '#fff';
                     ctx.font = 'bold 10px Arial';
                     ctx.textAlign = 'center';
-                    const label = powerup.type === 'machinegun' ? 'MG' : 'RC';
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 2;
+                    ctx.strokeText(label, powerup.x * scaleX, powerup.y * scaleY + 25);
                     ctx.fillText(label, powerup.x * scaleX, powerup.y * scaleY + 25);
                 });
             }
 
             gameState.bullets.forEach(bullet => {
-                // Glowing bullet effect
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = '#ffff00';
-                ctx.fillStyle = '#ffff00';
+                // Different colors and sizes for different bullet types
+                const bulletSize = bullet.size || 5;
+                const isCannon = bullet.throughWalls;
+
+                ctx.shadowBlur = isCannon ? 20 : 10;
+                ctx.shadowColor = isCannon ? '#ff6600' : '#ffff00';
+                ctx.fillStyle = isCannon ? '#ff6600' : '#ffff00';
                 ctx.beginPath();
-                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, 5, 0, Math.PI * 2);
+                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize * scaleX, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.shadowBlur = 0;
             });
@@ -719,8 +781,8 @@
                     ctx.beginPath();
                     ctx.moveTo(player.x * scaleX, player.y * scaleY);
                     ctx.lineTo(
-                        (player.x + Math.cos(displayAngle) * 25) * scaleX,
-                        (player.y + Math.sin(displayAngle) * 25) * scaleY
+                        (player.x + Math.cos(displayAngle) * 15) * scaleX,
+                        (player.y + Math.sin(displayAngle) * 15) * scaleY
                     );
                     ctx.stroke();
                 }
