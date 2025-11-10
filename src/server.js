@@ -39,16 +39,37 @@ class GameRoom {
             winner: null
         };
 
-        // Better spawn positions for up to 4 players
-        const spawnPositions = [
-            { x: 100, y: 100 },
-            { x: 700, y: 100 },
-            { x: 100, y: 500 },
-            { x: 700, y: 500 }
+        // Better spawn positions for up to 4 players (corners away from walls)
+        const potentialSpawns = [
+            { x: 120, y: 120 },
+            { x: 680, y: 120 },
+            { x: 120, y: 480 },
+            { x: 680, y: 480 }
         ];
 
         players.forEach((player, idx) => {
-            const spawn = spawnPositions[idx % 4];
+            // Find a spawn position that doesn't collide with walls
+            let spawn = potentialSpawns[idx % 4];
+            for (let attempt = 0; attempt < 20; attempt++) {
+                let collides = false;
+                const testPlayer = { x: spawn.x, y: spawn.y };
+                
+                for (let wall of this.gameState.walls) {
+                    if (this.isCollidingWithWall(testPlayer, wall)) {
+                        collides = true;
+                        break;
+                    }
+                }
+                
+                if (!collides) break;
+                
+                // Try random position
+                spawn = {
+                    x: 100 + Math.random() * 600,
+                    y: 100 + Math.random() * 400
+                };
+            }
+
             this.gameState.players[player.id] = {
                 id: player.id,
                 name: player.name,
@@ -101,18 +122,33 @@ class GameRoom {
         Object.values(this.gameState.players).forEach(player => {
             if (player.health <= 0) return;
 
+            // Store old position
+            const oldX = player.x;
+            const oldY = player.y;
+
+            // Try moving X
             player.x += player.vx * deltaTime;
-            player.y += player.vy * deltaTime;
-
-            player.x = Math.max(20, Math.min(mapWidth - 20, player.x));
-            player.y = Math.max(20, Math.min(mapHeight - 20, player.y));
-
+            let xCollision = false;
             this.gameState.walls.forEach(wall => {
                 if (this.isCollidingWithWall(player, wall)) {
-                    player.x -= player.vx * deltaTime;
-                    player.y -= player.vy * deltaTime;
+                    xCollision = true;
                 }
             });
+            if (xCollision) player.x = oldX;
+
+            // Try moving Y
+            player.y += player.vy * deltaTime;
+            let yCollision = false;
+            this.gameState.walls.forEach(wall => {
+                if (this.isCollidingWithWall(player, wall)) {
+                    yCollision = true;
+                }
+            });
+            if (yCollision) player.y = oldY;
+
+            // Clamp to map bounds
+            player.x = Math.max(20, Math.min(mapWidth - 20, player.x));
+            player.y = Math.max(20, Math.min(mapHeight - 20, player.y));
         });
 
         this.gameState.bullets = this.gameState.bullets.filter(bullet => {
@@ -150,10 +186,11 @@ class GameRoom {
     }
 
     isCollidingWithWall(player, wall) {
-        return player.x + 15 > wall.x &&
-            player.x - 15 < wall.x + wall.width &&
-            player.y + 15 > wall.y &&
-            player.y - 15 < wall.y + wall.height;
+        // Reduced player radius from 15 to 10
+        return player.x + 10 > wall.x &&
+            player.x - 10 < wall.x + wall.width &&
+            player.y + 10 > wall.y &&
+            player.y - 10 < wall.y + wall.height;
     }
 
     bulletCollidesWithWall(bullet, wall) {
@@ -167,7 +204,7 @@ class GameRoom {
         const dx = bullet.x - player.x;
         const dy = bullet.y - player.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        return distance < 18; // Better hit detection
+        return distance < 12; // Reduced from 18 to 12
     }
 
     shoot(playerId, angle) {
@@ -179,7 +216,7 @@ class GameRoom {
         if (now - player.lastShot < 500) return;
         player.lastShot = now;
 
-        const speed = 500;
+        const speed = 900; // Increased from 500 to 900
         const bullet = {
             x: player.x + Math.cos(angle) * 25,
             y: player.y + Math.sin(angle) * 25,
@@ -217,32 +254,24 @@ wss.on('connection', (ws) => {
 
                 console.log(`Player ${data.name} joined. Lobby count: ${currentLobby.players.length}`);
 
-                // Set start time on first player
+                // Set start time on first player ONLY
                 if (!currentLobby.startTime) {
                     currentLobby.startTime = Date.now();
-                    console.log(`⏲️ Setting 10 second timer for game start`);
+                    console.log(`⏲️ Setting 5 second timer for game start`);
+                    
+                    // Start timer only once when first player joins
+                    currentLobby.startTimer = setTimeout(() => {
+                        console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
+                        if (currentLobby.players.length >= 1) {
+                            startGame(currentLobby);
+                            lobby = null; // Reset for next game
+                        } else {
+                            console.log(`❌ No players in lobby, not starting`);
+                        }
+                    }, 5000);
                 }
 
                 broadcastLobbyUpdate();
-
-                // Cancel existing timer if any
-                if (currentLobby.startTimer) {
-                    clearTimeout(currentLobby.startTimer);
-                }
-
-                // Set new timer based on startTime (5 seconds)
-                const elapsed = Date.now() - currentLobby.startTime;
-                const remaining = Math.max(0, 5000 - elapsed);
-
-                currentLobby.startTimer = setTimeout(() => {
-                    console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
-                    if (currentLobby.players.length >= 1) {
-                        startGame(currentLobby);
-                        lobby = null; // Reset for next game
-                    } else {
-                        console.log(`❌ No players in lobby, not starting`);
-                    }
-                }, remaining);
             }
 
             if (data.type === 'move') {
