@@ -452,9 +452,6 @@
                         countdownInterval = null;
                     }
 
-                    // Reset mouse angle to prevent weird start aiming
-                    mouseAngle = 0;
-
                     // Store game state
                     gameState = data.state;
                     console.log('Players in game:', Object.keys(data.state.players).length);
