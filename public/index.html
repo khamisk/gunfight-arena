@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Shooter Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #fff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #lobby-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        #game-screen {
+            display: none;
+            width: 100%;
+            height: 100vh;
+            background-color: #000;
+        }
+
+        .lobby-container {
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .lobby-container h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .lobby-container p {
+            font-size: 1.1em;
+            margin-bottom: 30px;
+            opacity: 0.9;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 1em;
+        }
+
+        .input-group input {
+            width: 300px;
+            padding: 10px;
+            font-size: 1em;
+            border: none;
+            border-radius: 5px;
+            background-color: #f0f0f0;
+            color: #000;
+        }
+
+        .color-selector {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .color-option {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .color-option:hover {
+            transform: scale(1.1);
+        }
+
+        .color-option.selected {
+            border-color: #fff;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+        }
+
+        .blue-color {
+            background-color: #3498db;
+        }
+
+        .red-color {
+            background-color: #e74c3c;
+        }
+
+        .yellow-color {
+            background-color: #f39c12;
+        }
+
+        .green-color {
+            background-color: #2ecc71;
+        }
+
+        .button-group {
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 1.1em;
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background-color: #27ae60;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .status {
+            font-size: 1.2em;
+            margin-top: 20px;
+            min-height: 30px;
+        }
+
+        .waiting {
+            color: #f39c12;
+        }
+
+        .ready {
+            color: #2ecc71;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .game-ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 1.2em;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 5px;
+        }
+
+        .player-info {
+            margin-bottom: 10px;
+        }
+
+        .health-bar {
+            width: 200px;
+            height: 20px;
+            background-color: #333;
+            border: 2px solid #fff;
+            border-radius: 3px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .health-fill {
+            height: 100%;
+            background-color: #2ecc71;
+            transition: width 0.1s;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="lobby-screen">
+        <div class="lobby-container">
+            <h1>🎮 GUNFIGHT ARENA</h1>
+            <p>Up to 4 players battle royale</p>
+
+            <div class="input-group">
+                <label for="playerName">Your Name:</label>
+                <input type="text" id="playerName" placeholder="Enter your name" maxlength="20">
+            </div>
+
+            <div class="input-group">
+                <label>Select Color:</label>
+                <div class="color-selector">
+                    <div class="color-option blue-color selected" data-color="blue"></div>
+                    <div class="color-option red-color" data-color="red"></div>
+                    <div class="color-option yellow-color" data-color="yellow"></div>
+                    <div class="color-option green-color" data-color="green"></div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button id="joinBtn">Join Game</button>
+            </div>
+
+            <div class="status" id="status">Ready to join</div>
+        </div>
+    </div>
+
+    <div id="game-screen">
+        <canvas id="gameCanvas"></canvas>
+        <div class="game-ui">
+            <div id="playersList"></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const playerNameInput = document.getElementById('playerName');
+        const joinBtn = document.getElementById('joinBtn');
+        const statusDiv = document.getElementById('status');
+        const lobbyScreen = document.getElementById('lobby-screen');
+        const gameScreen = document.getElementById('game-screen');
+
+        let selectedColor = 'blue';
+        let ws = null;
+        let gameState = null;
+        let playerId = null;
+        let playerColor = null;
+        let keys = {};
+        let mouseAngle = 0;
+        let joinTime = null;
+        let countdownInterval = null;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        document.querySelectorAll('.color-option').forEach(option => {
+            option.addEventListener('click', () => {
+                document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
+                option.classList.add('selected');
+                selectedColor = option.dataset.color;
+            });
+        });
+
+        joinBtn.addEventListener('click', () => {
+            const name = playerNameInput.value.trim();
+            if (!name) {
+                alert('Please enter a name');
+                return;
+            }
+            joinGame(name, selectedColor);
+        });
+
+        playerNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                joinBtn.click();
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            mouseAngle = Math.atan2(mouseY - centerY, mouseX - centerX);
+        });
+
+        canvas.addEventListener('click', () => {
+            if (ws && gameState) {
+                ws.send(JSON.stringify({
+                    type: 'shoot',
+                    angle: mouseAngle
+                }));
+            }
+        });
+
+        function joinGame(name, color) {
+            statusDiv.textContent = 'Connecting...';
+            statusDiv.className = 'waiting';
+            joinBtn.disabled = true;
+            joinTime = Date.now();
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({
+                    type: 'join_lobby',
+                    name: name,
+                    color: color
+                }));
+                playerId = Math.random().toString(36).substr(2, 9);
+                playerColor = color;
+                startCountdown();
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'lobby_update') {
+                    const totalQueued = data.lobbies.reduce((sum, l) => sum + l.playerCount, 0);
+                    updateCountdown(totalQueued);
+                }
+
+                if (data.type === 'game_state') {
+                    if (countdownInterval) clearInterval(countdownInterval);
+                    gameState = data.state;
+                    if (gameScreen.style.display === 'none') {
+                        lobbyScreen.style.display = 'none';
+                        gameScreen.style.display = 'block';
+                    }
+                    render();
+                }
+            };
+
+            ws.onerror = () => {
+                statusDiv.textContent = 'Connection error';
+                statusDiv.className = '';
+                joinBtn.disabled = false;
+                if (countdownInterval) clearInterval(countdownInterval);
+            };
+
+            ws.onclose = () => {
+                gameScreen.style.display = 'none';
+                lobbyScreen.style.display = 'flex';
+                gameState = null;
+                statusDiv.textContent = 'Disconnected';
+                statusDiv.className = '';
+                joinBtn.disabled = false;
+            };
+        }
+
+        function updateMovement() {
+            if (!ws || !gameState) return;
+
+            let vx = 0;
+            let vy = 0;
+
+            if (keys['w'] || keys['arrowup']) vy -= 1;
+            if (keys['s'] || keys['arrowdown']) vy += 1;
+            if (keys['a'] || keys['arrowleft']) vx -= 1;
+            if (keys['d'] || keys['arrowright']) vx += 1;
+
+            if (vx !== 0 || vy !== 0) {
+                const magnitude = Math.sqrt(vx * vx + vy * vy);
+                vx /= magnitude;
+                vy /= magnitude;
+            }
+
+            ws.send(JSON.stringify({
+                type: 'move',
+                vx: vx,
+                vy: vy,
+                angle: mouseAngle
+            }));
+        }
+
+        function render() {
+            ctx.fillStyle = '#222';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (!gameState) return;
+
+            const scaleX = canvas.width / 800;
+            const scaleY = canvas.height / 600;
+
+            ctx.fillStyle = '#444';
+            gameState.walls.forEach(wall => {
+                ctx.fillRect(wall.x * scaleX, wall.y * scaleY, wall.width * scaleX, wall.height * scaleY);
+                ctx.strokeStyle = '#666';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(wall.x * scaleX, wall.y * scaleY, wall.width * scaleX, wall.height * scaleY);
+            });
+
+            gameState.bullets.forEach(bullet => {
+                ctx.fillStyle = '#ffff00';
+                ctx.beginPath();
+                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            Object.values(gameState.players).forEach(player => {
+                ctx.fillStyle = player.color;
+                ctx.beginPath();
+                ctx.arc(player.x * scaleX, player.y * scaleY, 15, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(player.x * scaleX, player.y * scaleY);
+                ctx.lineTo(
+                    (player.x + Math.cos(player.angle) * 20) * scaleX,
+                    (player.y + Math.sin(player.angle) * 20) * scaleY
+                );
+                ctx.stroke();
+
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(player.name, player.x * scaleX, (player.y + 30) * scaleY);
+
+                ctx.fillStyle = player.health > 50 ? '#2ecc71' : player.health > 25 ? '#f39c12' : '#e74c3c';
+                ctx.fillRect((player.x - 15) * scaleX, (player.y - 30) * scaleY, 30 * scaleX, 5 * scaleY);
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px Arial';
+                ctx.fillText(Math.max(0, player.health), player.x * scaleX, (player.y - 20) * scaleY);
+            });
+
+            updatePlayersList();
+            updateMovement();
+        }
+
+        function updatePlayersList() {
+            const playersList = document.getElementById('playersList');
+            playersList.innerHTML = '';
+
+            Object.values(gameState.players).forEach(player => {
+                const playerDiv = document.createElement('div');
+                playerDiv.className = 'player-info';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.color = player.color;
+                nameSpan.textContent = player.name;
+
+                const scoreSpan = document.createElement('span');
+                scoreSpan.style.marginLeft = '10px';
+                scoreSpan.style.color = '#aaa';
+                scoreSpan.textContent = `Score: ${player.score}`;
+
+                const healthBar = document.createElement('div');
+                healthBar.className = 'health-bar';
+                const healthFill = document.createElement('div');
+                healthFill.className = 'health-fill';
+                healthFill.style.width = (Math.max(0, player.health) / 100) * 100 + '%';
+                healthBar.appendChild(healthFill);
+
+                playerDiv.appendChild(nameSpan);
+                playerDiv.appendChild(scoreSpan);
+                playerDiv.appendChild(healthBar);
+                playersList.appendChild(playerDiv);
+            });
+        }
+
+        function startCountdown() {
+            if (countdownInterval) clearInterval(countdownInterval);
+            countdownInterval = setInterval(() => {
+                updateCountdown();
+            }, 100);
+        }
+
+        function updateCountdown(totalQueued = 1) {
+            const elapsed = (Date.now() - joinTime) / 1000;
+            const remaining = Math.max(0, 10 - elapsed);
+
+            if (remaining <= 0) {
+                if (countdownInterval) clearInterval(countdownInterval);
+                statusDiv.textContent = '🚀 Game starting...';
+                statusDiv.className = 'ready';
+                return;
+            }
+
+            const playerText = totalQueued ? `${totalQueued} player${totalQueued !== 1 ? 's' : ''} queued` : '1 player in lobby';
+            statusDiv.textContent = `⏳ ${playerText} • Game starts in ${remaining.toFixed(1)}s`;
+            statusDiv.className = 'waiting';
+        }
+
+        function gameLoop() {
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+
+</html>
