@@ -146,42 +146,52 @@ class GameRoom {
             { x: 735, y: 50, width: 15, height: 500 }
         );
 
-        // Strategic cover walls - L-shapes and boxes for better cover
+        // Strategic cover walls - thinner walls distributed around map
         const coverSpots = [
             // Top left area
-            { x: 150, y: 150, width: 80, height: 20 },
-            { x: 150, y: 150, width: 20, height: 80 },
+            { x: 150, y: 150, width: 70, height: 10 },
+            { x: 150, y: 150, width: 10, height: 70 },
 
             // Top right area
-            { x: 570, y: 150, width: 80, height: 20 },
-            { x: 630, y: 150, width: 20, height: 80 },
+            { x: 580, y: 150, width: 70, height: 10 },
+            { x: 640, y: 150, width: 10, height: 70 },
 
             // Bottom left area
-            { x: 150, y: 430, width: 80, height: 20 },
-            { x: 150, y: 370, width: 20, height: 80 },
+            { x: 150, y: 440, width: 70, height: 10 },
+            { x: 150, y: 380, width: 10, height: 70 },
 
             // Bottom right area
-            { x: 570, y: 430, width: 80, height: 20 },
-            { x: 630, y: 370, width: 20, height: 80 },
+            { x: 580, y: 440, width: 70, height: 10 },
+            { x: 640, y: 380, width: 10, height: 70 },
 
-            // Center cover
-            { x: 350, y: 250, width: 100, height: 20 },
-            { x: 350, y: 330, width: 100, height: 20 },
-            { x: 340, y: 270, width: 20, height: 60 },
-            { x: 440, y: 270, width: 20, height: 60 },
+            // Sparse center cover - minimal middle clustering
+            { x: 380, y: 270, width: 10, height: 60 },
+            { x: 420, y: 270, width: 10, height: 60 },
         ];
 
         walls.push(...coverSpots);
 
-        // Add some random cover pieces (10-15)
-        const randomCount = 10 + Math.floor(Math.random() * 6);
-        for (let i = 0; i < randomCount; i++) {
-            const isHorizontal = Math.random() > 0.5;
-            const width = isHorizontal ? 50 + Math.floor(Math.random() * 70) : 15 + Math.floor(Math.random() * 20);
-            const height = isHorizontal ? 15 + Math.floor(Math.random() * 20) : 50 + Math.floor(Math.random() * 70);
+        // Add scattered thin cover pieces distributed evenly (15-20)
+        const randomCount = 15 + Math.floor(Math.random() * 6);
+        // Divide map into grid zones to ensure distribution
+        const zones = [
+            { minX: 120, maxX: 300, minY: 120, maxY: 240 }, // Top-left quadrant
+            { minX: 500, maxX: 680, minY: 120, maxY: 240 }, // Top-right quadrant
+            { minX: 120, maxX: 300, minY: 360, maxY: 480 }, // Bottom-left quadrant
+            { minX: 500, maxX: 680, minY: 360, maxY: 480 }, // Bottom-right quadrant
+            { minX: 300, maxX: 500, minY: 120, maxY: 200 }, // Top-mid
+            { minX: 300, maxX: 500, minY: 400, maxY: 480 }, // Bottom-mid
+        ];
 
-            const x = 120 + Math.floor(Math.random() * 560);
-            const y = 120 + Math.floor(Math.random() * 360);
+        for (let i = 0; i < randomCount; i++) {
+            const zone = zones[i % zones.length];
+            const isHorizontal = Math.random() > 0.5;
+            // Thinner walls - width 10 for vertical, height 10 for horizontal
+            const width = isHorizontal ? (40 + Math.floor(Math.random() * 50)) : 10;
+            const height = isHorizontal ? 10 : (40 + Math.floor(Math.random() * 50));
+
+            const x = zone.minX + Math.floor(Math.random() * (zone.maxX - zone.minX - width));
+            const y = zone.minY + Math.floor(Math.random() * (zone.maxY - zone.minY - height));
 
             walls.push({ x, y, width, height });
         }
@@ -341,22 +351,20 @@ class GameRoom {
             this.gameState.zone.startTime = this.gameState.gameTime;
         }
 
-        // Update zone - shrink over 30 seconds
+        // Update zone - shrink over 30 seconds to fully closed
         if (this.gameState.zone.active) {
             const zoneDuration = 30;
             const elapsed = this.gameState.gameTime - this.gameState.zone.startTime;
             const progress = Math.min(elapsed / zoneDuration, 1);
 
-            // Shrink to center (400, 300) - final size 200x200
-            const targetX = 300;
-            const targetY = 250;
-            const targetWidth = 200;
-            const targetHeight = 200;
+            // Shrink to center (400, 300) - final size 0x0 (fully closed)
+            const targetX = 400;
+            const targetY = 300;
 
             this.gameState.zone.x = targetX * progress;
             this.gameState.zone.y = targetY * progress;
-            this.gameState.zone.width = 800 - (600 * progress);
-            this.gameState.zone.height = 600 - (400 * progress);
+            this.gameState.zone.width = 800 * (1 - progress);
+            this.gameState.zone.height = 600 * (1 - progress);
 
             // Damage players outside zone
             Object.values(this.gameState.players).forEach(player => {
