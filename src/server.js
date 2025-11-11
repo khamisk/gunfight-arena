@@ -10,22 +10,10 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static(path.join(__dirname, '../public')));
 
 const COLORS = ['blue', 'red', 'yellow', 'green', 'purple', 'orange'];
-let lobby = null;
+let lobbies = new Map(); // lobbyId -> {id, name, hostId, password, players: [], maxPlayers, startTimer}
 let gameRooms = new Map();
-let playerConnections = new Map();
+let playerConnections = new Map(); // playerId -> {ws, playerInfo, currentLobby}
 let playerStats = new Map(); // Persistent stats: name -> {kills, wins}
-
-function getOrCreateLobby() {
-    if (!lobby) {
-        lobby = {
-            id: Math.random().toString(36).substr(2, 9),
-            players: [],
-            startTimer: null,
-            startTime: null
-        };
-    }
-    return lobby;
-}
 
 class GameRoom {
     constructor(roomId, players) {
@@ -608,42 +596,180 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
+            // Get lobbies list
+            if (data.type === 'get_lobbies') {
+                const lobbiesList = Array.from(lobbies.values()).map(lobby => ({
+                    id: lobby.id,
+                    name: lobby.name,
+                    playerCount: lobby.players.length,
+                    maxPlayers: lobby.maxPlayers,
+                    hasPassword: !!lobby.password,
+                    hostName: lobby.players.find(p => p.id === lobby.hostId)?.name || 'Host'
+                }));
+
+                ws.send(JSON.stringify({
+                    type: 'lobbies_list',
+                    lobbies: lobbiesList
+                }));
+            }
+
+            // Create lobby
+            if (data.type === 'create_lobby') {
+                playerInfo = {
+                    id: playerId,
+                    name: data.playerName,
+                    color: data.color || COLORS[0]
+                };
+
+                const newLobby = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name: data.name || `${data.playerName}'s Lobby`,
+                    hostId: playerId,
+                    password: data.password || null,
+                    players: [playerInfo],
+                    maxPlayers: 6
+                };
+
+                lobbies.set(newLobby.id, newLobby);
+                playerConnections.set(playerId, { ws, playerInfo, currentLobby: newLobby.id });
+
+                console.log(`📝 ${data.playerName} created lobby: ${newLobby.name}`);
+
+                ws.send(JSON.stringify({
+                    type: 'lobby_joined',
+                    lobbyId: newLobby.id
+                }));
+
+                broadcastToLobby(newLobby.id);
+                broadcastLobbyList();
+            }
+
+            // Join lobby
             if (data.type === 'join_lobby') {
+                const targetLobby = lobbies.get(data.lobbyId);
+
+                if (!targetLobby) {
+                    ws.send(JSON.stringify({ type: 'error', message: 'Lobby not found' }));
+                    return;
+                }
+
+                if (targetLobby.password && targetLobby.password !== data.password) {
+                    ws.send(JSON.stringify({ type: 'error', message: 'Incorrect password' }));
+                    return;
+                }
+
+                if (targetLobby.players.length >= targetLobby.maxPlayers) {
+                    ws.send(JSON.stringify({ type: 'error', message: 'Lobby is full' }));
+                    return;
+                }
+
+                // Find available color
+                const usedColors = targetLobby.players.map(p => p.color);
+                const availableColor = COLORS.find(c => !usedColors.includes(c)) || COLORS[0];
+
                 playerInfo = {
                     id: playerId,
                     name: data.name,
-                    color: data.color
+                    color: availableColor
                 };
-                playerConnections.set(playerId, { ws, playerInfo });
 
-                currentLobby = getOrCreateLobby();
+                targetLobby.players.push(playerInfo);
+                playerConnections.set(playerId, { ws, playerInfo, currentLobby: data.lobbyId });
 
-                // Only add if not already in lobby
-                if (!currentLobby.players.find(p => p.id === playerId)) {
-                    currentLobby.players.push(playerInfo);
-                }
+                console.log(`👤 ${data.name} joined lobby: ${targetLobby.name}`);
 
-                console.log(`Player ${data.name} joined. Lobby count: ${currentLobby.players.length}`);
+                ws.send(JSON.stringify({
+                    type: 'lobby_joined',
+                    lobbyId: data.lobbyId
+                }));
 
-                // Start timer when 2+ players join (changed from 1)
-                if (!currentLobby.startTime && currentLobby.players.length >= 2) {
-                    currentLobby.startTime = Date.now();
-                    console.log(`⏲️ Starting 5 second countdown with ${currentLobby.players.length} players`);
+                // Notify all players in lobby
+                broadcastToLobby(data.lobbyId);
+                broadcastLobbyList();
+            }
 
-                    // Start timer only once when 2nd player joins
-                    currentLobby.startTimer = setTimeout(() => {
-                        console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
-                        if (currentLobby.players.length >= 2) {
-                            startGame(currentLobby);
-                            lobby = null; // Reset for next game
-                        } else {
-                            console.log(`❌ Not enough players, cancelling start`);
-                            currentLobby.startTime = null; // Reset timer
+            // Change color in lobby
+            if (data.type === 'change_color') {
+                const connection = playerConnections.get(playerId);
+                if (connection && connection.currentLobby) {
+                    const targetLobby = lobbies.get(connection.currentLobby);
+                    if (targetLobby) {
+                        const usedColors = targetLobby.players.filter(p => p.id !== playerId).map(p => p.color);
+                        if (!usedColors.includes(data.color)) {
+                            const player = targetLobby.players.find(p => p.id === playerId);
+                            if (player) {
+                                player.color = data.color;
+                                connection.playerInfo.color = data.color;
+                                broadcastToLobby(connection.currentLobby);
+                            }
                         }
-                    }, 5000);
+                    }
                 }
+            }
 
-                broadcastLobbyUpdate();
+            // Start game (host only)
+            if (data.type === 'start_game') {
+                const connection = playerConnections.get(playerId);
+                if (connection && connection.currentLobby) {
+                    const targetLobby = lobbies.get(connection.currentLobby);
+                    if (targetLobby && targetLobby.hostId === playerId) {
+                        console.log(`🎮 Host starting game in lobby: ${targetLobby.name}`);
+                        startGame(targetLobby);
+                        lobbies.delete(targetLobby.id);
+                        broadcastLobbyList();
+                    }
+                }
+            }
+
+            // Leave lobby
+            if (data.type === 'leave_lobby') {
+                const connection = playerConnections.get(playerId);
+                if (connection && connection.currentLobby) {
+                    const targetLobby = lobbies.get(connection.currentLobby);
+                    if (targetLobby) {
+                        targetLobby.players = targetLobby.players.filter(p => p.id !== playerId);
+
+                        if (targetLobby.players.length === 0) {
+                            lobbies.delete(targetLobby.id);
+                            console.log(`🗑️ Lobby deleted: ${targetLobby.name}`);
+                        } else if (targetLobby.hostId === playerId) {
+                            // Transfer host
+                            targetLobby.hostId = targetLobby.players[0].id;
+                            console.log(`👑 Host transferred to ${targetLobby.players[0].name}`);
+                            broadcastToLobby(connection.currentLobby);
+                        } else {
+                            broadcastToLobby(connection.currentLobby);
+                        }
+
+                        connection.currentLobby = null;
+                        broadcastLobbyList();
+                    }
+                }
+            }
+
+            // Kick player (host only)
+            if (data.type === 'kick_player') {
+                const connection = playerConnections.get(playerId);
+                if (connection && connection.currentLobby) {
+                    const targetLobby = lobbies.get(connection.currentLobby);
+                    if (targetLobby && targetLobby.hostId === playerId) {
+                        const kickedPlayerId = data.playerId;
+                        const kickedPlayer = targetLobby.players.find(p => p.id === kickedPlayerId);
+                        if (kickedPlayer) {
+                            targetLobby.players = targetLobby.players.filter(p => p.id !== kickedPlayerId);
+
+                            const kickedConnection = playerConnections.get(kickedPlayerId);
+                            if (kickedConnection) {
+                                kickedConnection.currentLobby = null;
+                                kickedConnection.ws.send(JSON.stringify({ type: 'kicked' }));
+                            }
+
+                            console.log(`🚪 ${kickedPlayer.name} kicked from ${targetLobby.name}`);
+                            broadcastToLobby(connection.currentLobby);
+                            broadcastLobbyList();
+                        }
+                    }
+                }
             }
 
             if (data.type === 'move') {
@@ -770,71 +896,73 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         console.log(`Player disconnected. ID: ${playerId}`);
-        playerConnections.delete(playerId);
+        const connection = playerConnections.get(playerId);
 
-        if (currentLobby) {
-            currentLobby.players = currentLobby.players.filter(p => p.id !== playerId);
-            console.log(`Lobby now has ${currentLobby.players.length} players`);
+        if (connection && connection.currentLobby) {
+            const targetLobby = lobbies.get(connection.currentLobby);
+            if (targetLobby) {
+                targetLobby.players = targetLobby.players.filter(p => p.id !== playerId);
+                console.log(`${connection.playerInfo?.name || 'Player'} left ${targetLobby.name}. ${targetLobby.players.length} players remaining.`);
 
-            // Cancel timer if players drop below 2
-            if (currentLobby.players.length < 2 && currentLobby.startTimer) {
-                console.log(`⏰ Cancelling timer - not enough players`);
-                clearTimeout(currentLobby.startTimer);
-                currentLobby.startTimer = null;
-                currentLobby.startTime = null;
-            }
-
-            if (currentLobby.players.length === 0) {
-                if (currentLobby.startTimer) {
-                    clearTimeout(currentLobby.startTimer);
+                if (targetLobby.players.length === 0) {
+                    lobbies.delete(targetLobby.id);
+                    console.log(`🗑️ Lobby deleted: ${targetLobby.name}`);
+                } else if (targetLobby.hostId === playerId) {
+                    // Transfer host
+                    targetLobby.hostId = targetLobby.players[0].id;
+                    console.log(`👑 Host transferred to ${targetLobby.players[0].name}`);
+                    broadcastToLobby(connection.currentLobby);
+                } else {
+                    broadcastToLobby(connection.currentLobby);
                 }
-                lobby = null;
+
+                broadcastLobbyList();
             }
         }
-        broadcastLobbyUpdate();
+
+        playerConnections.delete(playerId);
     });
 });
 
-function broadcastLobbyUpdate() {
-    const lobbyData = lobby ? {
+function broadcastLobbyList() {
+    const lobbiesList = Array.from(lobbies.values()).map(lobby => ({
         id: lobby.id,
+        name: lobby.name,
         playerCount: lobby.players.length,
-        maxPlayers: 6,
-        players: lobby.players.map(p => {
-            const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
-            return {
-                name: p.name,
-                color: p.color,
-                kills: stats.kills,
-                wins: stats.wins
-            };
-        }),
-        timeRemaining: lobby.startTime ? Math.max(0, 5 - (Date.now() - lobby.startTime) / 1000) : 5
-    } : null;
-
-    // Get active games info
-    const activeGames = Array.from(gameRooms.values()).map(room => {
-        const alivePlayers = Object.values(room.gameState.players).filter(p => p.health > 0);
-        return {
-            playerCount: Object.keys(room.gameState.players).length,
-            aliveCount: alivePlayers.length,
-            gameTime: Math.floor(room.gameState.gameTime)
-        };
-    });
+        maxPlayers: lobby.maxPlayers,
+        hasPassword: !!lobby.password,
+        hostName: lobby.players.find(p => p.id === lobby.hostId)?.name || 'Host'
+    }));
 
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
-                type: 'lobby_update',
-                lobby: lobbyData,
-                playerCount: lobbyData ? lobbyData.playerCount : 0,
-                activeGames: activeGames
+                type: 'lobbies_list',
+                lobbies: lobbiesList
             }));
         }
     });
 }
 
-function startGame(currentLobby) {
+function broadcastToLobby(lobbyId) {
+    const lobby = lobbies.get(lobbyId);
+    if (!lobby) return;
+
+    console.log(`📢 Broadcasting lobby update: ${lobby.name} (${lobby.players.length} players)`);
+
+    lobby.players.forEach(player => {
+        const connection = playerConnections.get(player.id);
+        if (connection && connection.ws.readyState === WebSocket.OPEN) {
+            const message = {
+                type: 'lobby_update',
+                lobby: lobby,
+                isHost: lobby.hostId === player.id
+            };
+            connection.ws.send(JSON.stringify(message));
+            console.log(`  → Sent to ${player.name} (isHost: ${lobby.hostId === player.id})`);
+        }
+    });
+} function startGame(currentLobby) {
     console.log(`🎮 GAME STARTING with ${currentLobby.players.length} players`);
     const room = new GameRoom(currentLobby.id, currentLobby.players);
     gameRooms.set(currentLobby.id, room);
@@ -945,7 +1073,7 @@ function endGame(room, players, gameLoop) {
 
     gameRooms.delete(room.roomId);
 
-    // Send all players back to lobby
+    // Send all players back to main menu
     players.forEach(player => {
         const connection = playerConnections.get(player.id);
         if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
@@ -962,10 +1090,17 @@ function endGame(room, players, gameLoop) {
                     };
                 })
             }));
+
+            // Clear their lobby reference
+            connection.currentLobby = null;
         }
     });
 
-    broadcastLobbyUpdate();
+    // Delete the lobby
+    lobbies.delete(room.roomId);
+
+    // Update lobby list for everyone
+    broadcastLobbyList();
 }
 
 const PORT = process.env.PORT || 3000;
