@@ -143,6 +143,34 @@
             background-color: #e67e22;
         }
 
+        .cyan-color {
+            background-color: #1abc9c;
+        }
+
+        .pink-color {
+            background-color: #e91e63;
+        }
+
+        .lime-color {
+            background-color: #8bc34a;
+        }
+
+        .indigo-color {
+            background-color: #3f51b5;
+        }
+
+        .teal-color {
+            background-color: #009688;
+        }
+
+        .magenta-color {
+            background-color: #9c27b0;
+        }
+
+        .random-color {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
+        }
+
         .button-group {
             margin-bottom: 20px;
         }
@@ -410,18 +438,30 @@
 
             <div id="colorSelectorContainer" class="input-group">
                 <label>Select Color:</label>
-                <div class="color-selector">
-                    <div class="color-option blue-color" data-color="blue"></div>
-                    <div class="color-option red-color" data-color="red"></div>
-                    <div class="color-option yellow-color" data-color="yellow"></div>
-                    <div class="color-option green-color" data-color="green"></div>
-                    <div class="color-option purple-color" data-color="purple"></div>
-                    <div class="color-option orange-color" data-color="orange"></div>
+                <div class="color-selector"
+                    style="display: grid; grid-template-columns: repeat(6, 50px); gap: 10px; justify-content: center;">
+                    <div class="color-option lobby-color-option blue-color" data-color="blue"></div>
+                    <div class="color-option lobby-color-option red-color" data-color="red"></div>
+                    <div class="color-option lobby-color-option yellow-color" data-color="yellow"></div>
+                    <div class="color-option lobby-color-option green-color" data-color="green"></div>
+                    <div class="color-option lobby-color-option purple-color" data-color="purple"></div>
+                    <div class="color-option lobby-color-option orange-color" data-color="orange"></div>
+                    <div class="color-option lobby-color-option cyan-color" data-color="cyan"></div>
+                    <div class="color-option lobby-color-option pink-color" data-color="pink"></div>
+                    <div class="color-option lobby-color-option lime-color" data-color="lime"></div>
+                    <div class="color-option lobby-color-option indigo-color" data-color="indigo"></div>
+                    <div class="color-option lobby-color-option teal-color" data-color="teal"></div>
+                    <div class="color-option lobby-color-option magenta-color" data-color="magenta"></div>
+                    <div class="color-option lobby-color-option random-color" data-color="random" title="Random Color"
+                        style="position: relative;">
+                        <span
+                            style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px;">🎲</span>
+                    </div>
                 </div>
             </div>
 
             <div id="queuedPlayers" style="margin-top: 20px; min-height: 200px;">
-                <h3 style="font-size: 1.2em; margin-bottom: 10px;">Players (0/6):</h3>
+                <h3 style="font-size: 1.2em; margin-bottom: 10px;">Players (<span id="playerCount">0</span>/6):</h3>
                 <div id="queuedPlayersList"></div>
             </div>
 
@@ -450,6 +490,22 @@
             <div class="button-group">
                 <button id="confirmCreateLobbyBtn" style="background: #2ecc71;">Create</button>
                 <button id="cancelCreateLobbyBtn" style="background: #95a5a6;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Join Lobby Modal -->
+    <div id="joinLobbyModal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: #2c3e50; padding: 30px; border-radius: 10px; max-width: 400px; width: 90%;">
+            <h2 style="margin-top: 0;" id="joinLobbyTitle">Join Lobby</h2>
+            <div class="input-group" id="joinPasswordGroup" style="display: none;">
+                <label for="joinPasswordInput">Password:</label>
+                <input type="password" id="joinPasswordInput" placeholder="Enter password" maxlength="20">
+            </div>
+            <div class="button-group">
+                <button id="confirmJoinLobbyBtn" style="background: #2ecc71;">Join</button>
+                <button id="cancelJoinLobbyBtn" style="background: #95a5a6;">Cancel</button>
             </div>
         </div>
     </div>
@@ -528,6 +584,25 @@
         let lastPlayerCount = 0;
         let currentLobbyId = null;
         let isHost = false;
+        let pendingLobbyJoin = null; // {lobbyId, hasPassword}
+        let playerName = '';
+        let localKills = parseInt(localStorage.getItem('totalKills') || '0');
+
+        // Extended color palette
+        const ALL_COLORS = ['blue', 'red', 'yellow', 'green', 'purple', 'orange', 'cyan', 'pink', 'lime', 'indigo', 'teal', 'magenta'];
+
+        // Update player name from input
+        const playerNameInput = document.getElementById('playerName');
+        playerName = localStorage.getItem('playerName') || '';
+        if (playerName) {
+            playerNameInput.value = playerName;
+        }
+        playerNameInput.addEventListener('input', (e) => {
+            playerName = e.target.value.trim();
+            if (playerName) {
+                localStorage.setItem('playerName', playerName);
+            }
+        });
 
         function showScreen(screenName) {
             document.getElementById('main-menu').style.display = 'none';
@@ -556,31 +631,31 @@
                     <div style="color: #aaa;">Host: ${lobby.hostName}</div>
                     <div style="color: #aaa;">Players: ${lobby.playerCount}/${lobby.maxPlayers}</div>
                 `;
-                card.onclick = () => joinLobby(lobby.id, lobby.hasPassword);
+                card.onclick = () => {
+                    if (!playerName) {
+                        alert('Please enter your name first!');
+                        playerNameInput.focus();
+                        return;
+                    }
+                    pendingLobbyJoin = { lobbyId: lobby.id, hasPassword: lobby.hasPassword };
+                    if (lobby.hasPassword) {
+                        document.getElementById('joinPasswordGroup').style.display = 'block';
+                    } else {
+                        document.getElementById('joinPasswordGroup').style.display = 'none';
+                    }
+                    document.getElementById('joinLobbyTitle').textContent = `Join ${lobby.name}`;
+                    document.getElementById('joinLobbyModal').style.display = 'flex';
+                };
                 container.appendChild(card);
             });
-        }
-
-        function joinLobby(lobbyId, hasPassword) {
-            const password = hasPassword ? prompt('Enter lobby password:') : '';
-            if (hasPassword && !password) return;
-
-            const name = prompt('Enter your name:');
-            if (!name) return;
-
-            playerColor = selectedColor;
-            ws.send(JSON.stringify({
-                type: 'join_lobby',
-                lobbyId: lobbyId,
-                name: name,
-                password: password
-            }));
         }
 
         function updateLobbyRoom(lobby, isHostPlayer) {
             isHost = isHostPlayer;
             const playersList = document.getElementById('queuedPlayersList');
+            const playerCountSpan = document.getElementById('playerCount');
             playersList.innerHTML = '';
+            playerCountSpan.textContent = lobby.players.length;
 
             lobby.players.forEach(player => {
                 // Update our player color if it changed
@@ -590,13 +665,23 @@
 
                 const playerDiv = document.createElement('div');
                 playerDiv.className = 'lobby-player-item';
-                playerDiv.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px; margin: 5px 0; background: #333; border-radius: 5px;';
+                playerDiv.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 12px; margin: 8px 0; background: #333; border-radius: 5px;';
 
                 const playerInfo = document.createElement('div');
-                playerInfo.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+                playerInfo.style.cssText = 'display: flex; align-items: center; gap: 15px; flex: 1;';
+
+                // Show local kills if it's the current player
+                const kills = player.id === playerId ? localKills : (player.kills || 0);
+                const wins = player.wins || 0;
+
                 playerInfo.innerHTML = `
-                    <div style="width: 20px; height: 20px; border-radius: 50%; background: ${player.color};"></div>
-                    <span>${player.name}${player.id === lobby.hostId ? ' 👑' : ''}</span>
+                    <div style="width: 25px; height: 25px; border-radius: 50%; background: ${player.color}; border: 2px solid #555;"></div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold; font-size: 1.1em;">${player.name}${player.id === lobby.hostId ? ' 👑' : ''}</div>
+                        <div style="font-size: 0.85em; color: #aaa; margin-top: 2px;">
+                            🏆 ${wins} Wins • 💀 ${kills} Kills
+                        </div>
+                    </div>
                 `;
 
                 playerDiv.appendChild(playerInfo);
@@ -617,6 +702,9 @@
                 playersList.appendChild(playerDiv);
             });
 
+            // Update lobby title
+            document.getElementById('lobbyRoomTitle').textContent = lobby.name;
+
             // Update start button visibility
             const startBtn = document.getElementById('startGameBtn');
             if (startBtn) {
@@ -626,6 +714,12 @@
             // Update color selector to highlight current color
             document.querySelectorAll('.lobby-color-option').forEach(option => {
                 const optionColor = option.dataset.color;
+                if (optionColor === 'random') {
+                    option.style.opacity = '1';
+                    option.style.cursor = 'pointer';
+                    option.style.border = '2px solid #555';
+                    return;
+                }
                 const isUsed = lobby.players.some(p => p.color === optionColor && p.id !== playerId);
                 const isCurrent = playerColor === optionColor;
 
@@ -687,6 +781,11 @@
 
         // Main menu buttons
         document.getElementById('createLobbyBtn').addEventListener('click', () => {
+            if (!playerName) {
+                alert('Please enter your name first!');
+                playerNameInput.focus();
+                return;
+            }
             document.getElementById('createLobbyModal').style.display = 'flex';
         });
 
@@ -703,10 +802,9 @@
         document.getElementById('confirmCreateLobbyBtn').addEventListener('click', () => {
             const lobbyName = document.getElementById('lobbyNameInput').value.trim();
             const lobbyPassword = document.getElementById('lobbyPasswordInput').value;
-            const playerName = prompt('Enter your name:');
 
-            if (!lobbyName || !playerName) {
-                alert('Lobby name and player name are required!');
+            if (!lobbyName) {
+                alert('Lobby name is required!');
                 return;
             }
 
@@ -723,6 +821,36 @@
                 document.getElementById('lobbyNameInput').value = '';
                 document.getElementById('lobbyPasswordInput').value = '';
             }
+        });
+
+        // Join lobby modal buttons
+        document.getElementById('cancelJoinLobbyBtn').addEventListener('click', () => {
+            document.getElementById('joinLobbyModal').style.display = 'none';
+            document.getElementById('joinPasswordInput').value = '';
+            pendingLobbyJoin = null;
+        });
+
+        document.getElementById('confirmJoinLobbyBtn').addEventListener('click', () => {
+            if (!pendingLobbyJoin || !ws) return;
+
+            const password = pendingLobbyJoin.hasPassword ? document.getElementById('joinPasswordInput').value : '';
+
+            if (pendingLobbyJoin.hasPassword && !password) {
+                alert('Password is required!');
+                return;
+            }
+
+            playerColor = selectedColor;
+            ws.send(JSON.stringify({
+                type: 'join_lobby',
+                lobbyId: pendingLobbyJoin.lobbyId,
+                name: playerName,
+                password: password
+            }));
+
+            document.getElementById('joinLobbyModal').style.display = 'none';
+            document.getElementById('joinPasswordInput').value = '';
+            pendingLobbyJoin = null;
         });
 
         // Lobby room buttons
@@ -743,7 +871,18 @@
         // Color selector in lobby
         document.querySelectorAll('.lobby-color-option').forEach(option => {
             option.addEventListener('click', () => {
-                const color = option.dataset.color;
+                let color = option.dataset.color;
+
+                // Handle random color
+                if (color === 'random') {
+                    // Pick a random color from available colors
+                    const availableColors = ALL_COLORS.filter(c => {
+                        // Get current lobby to check which colors are taken
+                        return true; // Server will handle availability
+                    });
+                    color = availableColors[Math.floor(Math.random() * availableColors.length)];
+                }
+
                 if (ws && currentLobbyId) {
                     ws.send(JSON.stringify({
                         type: 'change_color',
@@ -997,20 +1136,32 @@
                 }
 
                 if (data.type === 'game_end') {
-                    console.log('🏁 Game ended! Returning to main menu...');
+                    console.log('🏁 Game ended! Returning to lobby...');
 
-                    // Show final scores if available
+                    // Update local kills if we got any
                     if (data.finalStats && data.finalStats.length > 0) {
                         console.log('Final scores:', data.finalStats);
+                        const ourStats = data.finalStats.find(s => s.name === playerName);
+                        if (ourStats && ourStats.kills > 0) {
+                            localKills += ourStats.kills;
+                            localStorage.setItem('totalKills', localKills.toString());
+                            console.log(`Updated local kills: ${localKills}`);
+                        }
                     }
 
-                    // Return to main menu after 3 seconds
+                    // Return to lobby after 3 seconds
                     setTimeout(() => {
                         gameScreen.style.display = 'none';
                         gameState = null;
-                        showScreen('main-menu');
-                        ws.send(JSON.stringify({ type: 'get_lobbies' }));
-                        console.log('✅ Back to main menu!');
+                        if (currentLobbyId) {
+                            showScreen('lobby-room');
+                            // Request updated lobby state
+                            ws.send(JSON.stringify({ type: 'get_lobby_state', lobbyId: currentLobbyId }));
+                        } else {
+                            showScreen('main-menu');
+                            ws.send(JSON.stringify({ type: 'get_lobbies' }));
+                        }
+                        console.log('✅ Back to lobby!');
                     }, 3000);
                 }
             };

@@ -9,7 +9,7 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.static(path.join(__dirname, '../public')));
 
-const COLORS = ['blue', 'red', 'yellow', 'green', 'purple', 'orange'];
+const COLORS = ['blue', 'red', 'yellow', 'green', 'purple', 'orange', 'cyan', 'pink', 'lime', 'indigo', 'teal', 'magenta'];
 let lobbies = new Map(); // lobbyId -> {id, name, hostId, password, players: [], maxPlayers, startTimer}
 let gameRooms = new Map();
 let playerConnections = new Map(); // playerId -> {ws, playerInfo, currentLobby}
@@ -615,10 +615,15 @@ wss.on('connection', (ws) => {
 
             // Create lobby
             if (data.type === 'create_lobby') {
+                // Get player stats
+                const stats = playerStats.get(data.playerName) || { kills: 0, wins: 0 };
+
                 playerInfo = {
                     id: playerId,
                     name: data.playerName,
-                    color: data.color || COLORS[0]
+                    color: data.color || COLORS[0],
+                    wins: stats.wins,
+                    kills: stats.kills
                 };
 
                 const newLobby = {
@@ -667,10 +672,15 @@ wss.on('connection', (ws) => {
                 const usedColors = targetLobby.players.map(p => p.color);
                 const availableColor = COLORS.find(c => !usedColors.includes(c)) || COLORS[0];
 
+                // Get player stats
+                const stats = playerStats.get(data.name) || { kills: 0, wins: 0 };
+
                 playerInfo = {
                     id: playerId,
                     name: data.name,
-                    color: availableColor
+                    color: availableColor,
+                    wins: stats.wins,
+                    kills: stats.kills
                 };
 
                 targetLobby.players.push(playerInfo);
@@ -686,6 +696,21 @@ wss.on('connection', (ws) => {
                 // Notify all players in lobby
                 broadcastToLobby(data.lobbyId);
                 broadcastLobbyList();
+            }
+
+            // Get lobby state (for returning after game)
+            if (data.type === 'get_lobby_state') {
+                const targetLobby = lobbies.get(data.lobbyId);
+                if (targetLobby) {
+                    const connection = playerConnections.get(playerId);
+                    if (connection && connection.ws.readyState === WebSocket.OPEN) {
+                        connection.ws.send(JSON.stringify({
+                            type: 'lobby_update',
+                            lobby: targetLobby,
+                            isHost: targetLobby.hostId === playerId
+                        }));
+                    }
+                }
             }
 
             // Change color in lobby
@@ -1060,7 +1085,8 @@ function endGame(room, players, gameLoop) {
     const winner = alivePlayers.length === 1 ? alivePlayers[0] :
         Object.values(room.gameState.players).reduce((a, b) => (a.kills > b.kills ? a : b));
 
-    // Save stats
+    // Save stats and update lobby players with new wins
+    const lobby = lobbies.get(room.roomId);
     Object.values(room.gameState.players).forEach(player => {
         const stats = playerStats.get(player.name) || { kills: 0, wins: 0 };
         stats.kills += player.kills || 0;
@@ -1069,11 +1095,20 @@ function endGame(room, players, gameLoop) {
         }
         playerStats.set(player.name, stats);
         console.log(`💾 Saved stats for ${player.name}: ${stats.kills} kills, ${stats.wins} wins`);
+
+        // Update player stats in lobby
+        if (lobby) {
+            const lobbyPlayer = lobby.players.find(p => p.id === player.id);
+            if (lobbyPlayer) {
+                lobbyPlayer.wins = stats.wins;
+                lobbyPlayer.kills = stats.kills;
+            }
+        }
     });
 
     gameRooms.delete(room.roomId);
 
-    // Send all players back to main menu
+    // Send all players back to lobby
     players.forEach(player => {
         const connection = playerConnections.get(player.id);
         if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
@@ -1090,17 +1125,15 @@ function endGame(room, players, gameLoop) {
                     };
                 })
             }));
-
-            // Clear their lobby reference
-            connection.currentLobby = null;
         }
     });
 
-    // Delete the lobby
-    lobbies.delete(room.roomId);
-
-    // Update lobby list for everyone
-    broadcastLobbyList();
+    // Keep lobby intact and broadcast updated state
+    if (lobby) {
+        console.log(`🔄 Lobby ${lobby.name} remains active after game`);
+        broadcastToLobby(room.roomId);
+        broadcastLobbyList();
+    }
 }
 
 const PORT = process.env.PORT || 3000;
