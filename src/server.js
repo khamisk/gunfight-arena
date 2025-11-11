@@ -102,7 +102,11 @@ class GameRoom {
                 railgunCharging: false, // For railgun powerup
                 railgunChargeStart: 0, // When charge started
                 blinkCooldown: 0, // Blink dash cooldown
-                bouncyBallUsed: false // One-time bouncy ball
+                bouncyBallUsed: false, // One-time bouncy ball
+                chatMessage: null, // Current chat message
+                chatTime: 0, // When chat message was sent
+                emoji: null, // Current emoji
+                emojiTime: 0 // When emoji was shown
             };
         });
 
@@ -370,6 +374,16 @@ class GameRoom {
                     player.powerupTime = undefined;
                 }
             }
+
+            // Clean up chat messages after 5 seconds
+            if (player.chatMessage && (this.gameState.gameTime - player.chatTime) > 5) {
+                player.chatMessage = null;
+            }
+
+            // Clean up emojis after 3 seconds
+            if (player.emoji && (this.gameState.gameTime - player.emojiTime) > 3) {
+                player.emoji = null;
+            }
         });
 
         // Random powerup spawning (max 2 during game, random intervals 10-30 seconds)
@@ -624,19 +638,20 @@ wss.on('connection', (ws) => {
 
                 console.log(`Player ${data.name} joined. Lobby count: ${currentLobby.players.length}`);
 
-                // Set start time on first player ONLY
-                if (!currentLobby.startTime) {
+                // Start timer when 2+ players join (changed from 1)
+                if (!currentLobby.startTime && currentLobby.players.length >= 2) {
                     currentLobby.startTime = Date.now();
-                    console.log(`⏲️ Setting 5 second timer for game start`);
+                    console.log(`⏲️ Starting 5 second countdown with ${currentLobby.players.length} players`);
 
-                    // Start timer only once when first player joins
+                    // Start timer only once when 2nd player joins
                     currentLobby.startTimer = setTimeout(() => {
                         console.log(`⏰ TIMER FIRED! Starting game with ${currentLobby.players.length} players`);
-                        if (currentLobby.players.length >= 1) {
+                        if (currentLobby.players.length >= 2) {
                             startGame(currentLobby);
                             lobby = null; // Reset for next game
                         } else {
-                            console.log(`❌ No players in lobby, not starting`);
+                            console.log(`❌ Not enough players, cancelling start`);
+                            currentLobby.startTime = null; // Reset timer
                         }
                     }, 5000);
                 }
@@ -717,6 +732,35 @@ wss.on('connection', (ws) => {
                 }
             }
 
+            if (data.type === 'chat') {
+                const room = Array.from(gameRooms.values()).find(r =>
+                    r.gameState.players[playerId]
+                );
+                if (room) {
+                    const player = room.gameState.players[playerId];
+                    if (player && data.message) {
+                        // Limit message length
+                        player.chatMessage = data.message.substring(0, 100);
+                        player.chatTime = room.gameState.gameTime;
+                        console.log(`💬 ${player.name}: ${player.chatMessage}`);
+                    }
+                }
+            }
+
+            if (data.type === 'emoji') {
+                const room = Array.from(gameRooms.values()).find(r =>
+                    r.gameState.players[playerId]
+                );
+                if (room) {
+                    const player = room.gameState.players[playerId];
+                    if (player && data.emoji) {
+                        player.emoji = data.emoji;
+                        player.emojiTime = room.gameState.gameTime;
+                        console.log(`😀 ${player.name} used emoji: ${data.emoji}`);
+                    }
+                }
+            }
+
         } catch (e) {
             console.error('Error processing message:', e);
         }
@@ -729,6 +773,14 @@ wss.on('connection', (ws) => {
         if (currentLobby) {
             currentLobby.players = currentLobby.players.filter(p => p.id !== playerId);
             console.log(`Lobby now has ${currentLobby.players.length} players`);
+
+            // Cancel timer if players drop below 2
+            if (currentLobby.players.length < 2 && currentLobby.startTimer) {
+                console.log(`⏰ Cancelling timer - not enough players`);
+                clearTimeout(currentLobby.startTimer);
+                currentLobby.startTimer = null;
+                currentLobby.startTime = null;
+            }
 
             if (currentLobby.players.length === 0) {
                 if (currentLobby.startTimer) {
@@ -758,12 +810,23 @@ function broadcastLobbyUpdate() {
         timeRemaining: lobby.startTime ? Math.max(0, 5 - (Date.now() - lobby.startTime) / 1000) : 5
     } : null;
 
+    // Get active games info
+    const activeGames = Array.from(gameRooms.values()).map(room => {
+        const alivePlayers = Object.values(room.gameState.players).filter(p => p.health > 0);
+        return {
+            playerCount: Object.keys(room.gameState.players).length,
+            aliveCount: alivePlayers.length,
+            gameTime: Math.floor(room.gameState.gameTime)
+        };
+    });
+
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
                 type: 'lobby_update',
                 lobby: lobbyData,
-                playerCount: lobbyData ? lobbyData.playerCount : 0
+                playerCount: lobbyData ? lobbyData.playerCount : 0,
+                activeGames: activeGames
             }));
         }
     });

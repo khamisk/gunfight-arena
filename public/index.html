@@ -48,12 +48,30 @@
             font-size: 2.5em;
             margin-bottom: 10px;
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            background: linear-gradient(135deg, #3498db, #9b59b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .lobby-container p {
             font-size: 1.1em;
             margin-bottom: 30px;
             opacity: 0.9;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.02);
+                opacity: 0.9;
+            }
         }
 
         .input-group {
@@ -323,7 +341,14 @@
     <div id="lobby-screen">
         <div class="lobby-container">
             <h1>🎮 GUNFIGHT ARENA</h1>
-            <p>Up to 4 players battle royale</p>
+            <p style="font-size: 1.2em; color: #3498db; margin: 10px 0;">Up to 6 Players • Battle Royale • Last One
+                Standing</p>
+
+            <div id="gameInProgressBanner"
+                style="display: none; background: linear-gradient(135deg, #e74c3c, #c0392b); padding: 15px; border-radius: 8px; margin: 15px 0; animation: pulse 2s infinite;">
+                <h3 style="margin: 0 0 5px 0; font-size: 1.3em;">🔥 GAME IN PROGRESS</h3>
+                <p style="margin: 0; font-size: 0.9em;" id="gameInProgressInfo">Battle ongoing...</p>
+            </div>
 
             <div class="input-group">
                 <label for="playerName">Your Name:</label>
@@ -360,6 +385,29 @@
         <div id="powerupTimer"></div>
         <div class="game-ui">
             <div id="playersList"></div>
+        </div>
+        <div id="chatInputContainer"
+            style="display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); padding: 10px; border-radius: 5px;">
+            <input type="text" id="chatInput" placeholder="Type message... (Press Enter to send, Esc to cancel)"
+                maxlength="100"
+                style="width: 400px; padding: 8px; border: 2px solid #3498db; border-radius: 3px; font-size: 14px;">
+        </div>
+        <div id="emojiWheel"
+            style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 50%; width: 200px; height: 200px;">
+            <div
+                style="text-align: center; color: white; font-size: 60px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                <div class="emoji-option" data-emoji="happy" style="cursor: pointer; transition: transform 0.2s;">😊
+                </div>
+                <div class="emoji-option" data-emoji="sad" style="cursor: pointer; transition: transform 0.2s;">😢</div>
+                <div class="emoji-option" data-emoji="angry" style="cursor: pointer; transition: transform 0.2s;">😠
+                </div>
+                <div class="emoji-option" data-emoji="laugh" style="cursor: pointer; transition: transform 0.2s;">😂
+                </div>
+                <div class="emoji-option" data-emoji="cool" style="cursor: pointer; transition: transform 0.2s;">😎
+                </div>
+                <div class="emoji-option" data-emoji="love" style="cursor: pointer; transition: transform 0.2s;">😍
+                </div>
+            </div>
         </div>
     </div>
 
@@ -400,6 +448,29 @@
             });
         });
 
+        // Emoji wheel click handlers
+        document.querySelectorAll('.emoji-option').forEach(option => {
+            option.addEventListener('click', () => {
+                const emoji = option.dataset.emoji;
+                if (ws && gameState) {
+                    ws.send(JSON.stringify({
+                        type: 'emoji',
+                        emoji: emoji
+                    }));
+                    emojiWheelOpen = false;
+                    emojiWheel.style.display = 'none';
+                }
+            });
+
+            // Hover effect
+            option.addEventListener('mouseenter', () => {
+                option.style.transform = 'scale(1.2)';
+            });
+            option.addEventListener('mouseleave', () => {
+                option.style.transform = 'scale(1)';
+            });
+        });
+
         joinBtn.addEventListener('click', () => {
             const name = playerNameInput.value.trim();
             if (!name) {
@@ -425,8 +496,54 @@
         }
 
         let railgunCharging = false;
+        let chatOpen = false;
+        let emojiWheelOpen = false;
+
+        const chatInputContainer = document.getElementById('chatInputContainer');
+        const chatInput = document.getElementById('chatInput');
+        const emojiWheel = document.getElementById('emojiWheel');
 
         window.addEventListener('keydown', (e) => {
+            // Chat input handling
+            if (chatOpen) {
+                if (e.key === 'Enter') {
+                    const message = chatInput.value.trim();
+                    if (message && ws) {
+                        ws.send(JSON.stringify({
+                            type: 'chat',
+                            message: message
+                        }));
+                    }
+                    chatInput.value = '';
+                    chatInputContainer.style.display = 'none';
+                    chatOpen = false;
+                    return;
+                } else if (e.key === 'Escape') {
+                    chatInput.value = '';
+                    chatInputContainer.style.display = 'none';
+                    chatOpen = false;
+                    return;
+                }
+                return; // Don't process other keys while chat is open
+            }
+
+            // Open chat with Enter
+            if (e.key === 'Enter' && ws && gameState && !chatOpen) {
+                e.preventDefault();
+                chatOpen = true;
+                chatInputContainer.style.display = 'block';
+                chatInput.focus();
+                return;
+            }
+
+            // Show emoji wheel with B
+            if (e.key.toLowerCase() === 'b' && ws && gameState && !emojiWheelOpen) {
+                e.preventDefault();
+                emojiWheelOpen = true;
+                emojiWheel.style.display = 'block';
+                return;
+            }
+
             keys[e.key.toLowerCase()] = true;
 
             // Railgun charging (hold mouse)
@@ -440,8 +557,8 @@
                 }
             }
 
-            // Blink dash with spacebar
-            if (e.key === ' ' && ws && gameState) {
+            // Blink dash with spacebar (only if chat not open)
+            if (e.key === ' ' && ws && gameState && !chatOpen) {
                 e.preventDefault(); // Prevent page scroll
                 const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
                 if (ourPlayer && ourPlayer.powerup === 'blink') {
@@ -450,6 +567,14 @@
                         angle: mouseAngle
                     }));
                 }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            // Hide emoji wheel when B is released
+            if (e.key.toLowerCase() === 'b' && emojiWheelOpen) {
+                emojiWheelOpen = false;
+                emojiWheel.style.display = 'none';
             }
         });
 
@@ -560,6 +685,17 @@
                 if (data.type === 'lobby_update') {
                     console.log('👥 Players in lobby:', data.playerCount);
                     const timeRemaining = data.lobby ? data.lobby.timeRemaining : 5;
+
+                    // Update game in progress banner
+                    const banner = document.getElementById('gameInProgressBanner');
+                    const bannerInfo = document.getElementById('gameInProgressInfo');
+                    if (data.activeGames && data.activeGames.length > 0) {
+                        const game = data.activeGames[0]; // Show first active game
+                        banner.style.display = 'block';
+                        bannerInfo.textContent = `${game.aliveCount}/${game.playerCount} players alive • ${game.gameTime}s elapsed`;
+                    } else {
+                        banner.style.display = 'none';
+                    }
 
                     // Start countdown timer if not already running and timer has started
                     if (timeRemaining > 0 && timeRemaining < 5 && !countdownInterval) {
@@ -945,6 +1081,44 @@
                         (player.y + Math.sin(displayAngle) * 15) * scaleY
                     );
                     ctx.stroke();
+                }
+
+                // Chat message above player
+                if (player.chatMessage) {
+                    ctx.save();
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                    ctx.font = 'bold 12px Arial';
+                    const messageWidth = ctx.measureText(player.chatMessage).width;
+                    const padding = 8;
+                    const bubbleX = player.x * scaleX - (messageWidth + padding * 2) / 2;
+                    const bubbleY = (player.y - 55) * scaleY;
+
+                    // Speech bubble background
+                    ctx.fillRect(bubbleX, bubbleY, messageWidth + padding * 2, 20);
+
+                    // Speech bubble tail (small triangle)
+                    ctx.beginPath();
+                    ctx.moveTo(player.x * scaleX - 5, bubbleY + 20);
+                    ctx.lineTo(player.x * scaleX + 5, bubbleY + 20);
+                    ctx.lineTo(player.x * scaleX, bubbleY + 25);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Message text
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(player.chatMessage, player.x * scaleX, bubbleY + 14);
+                    ctx.restore();
+                }
+
+                // Emoji above player
+                if (player.emoji) {
+                    const emojiMap = {
+                        'happy': '😊', 'sad': '😢', 'angry': '😠',
+                        'laugh': '😂', 'cool': '😎', 'love': '😍'
+                    };
+                    ctx.font = '30px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(emojiMap[player.emoji] || '😊', player.x * scaleX, (player.y - 50) * scaleY);
                 }
 
                 // Player name
