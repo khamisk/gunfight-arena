@@ -36,8 +36,11 @@ class GameRoom {
             bullets: [],
             walls: this.generateWalls(),
             powerups: [],
+            powerupNotifications: [], // {playerName, powerupType, time}
             gameTime: 0,
             winner: null,
+            powerupsSpawned: 0,
+            lastPowerupSpawn: 0,
             zone: {
                 x: 0,
                 y: 0,
@@ -92,16 +95,15 @@ class GameRoom {
                 kills: 0,
                 wins: 0,
                 lastShot: 0,
-                powerup: null // 'machinegun' or 'ricochet'
+                powerup: null // Various powerup types
             };
         });
 
-        // Spawn one random powerup
-        this.spawnPowerup();
+        // Don't spawn powerup at start - will spawn randomly during game
     }
 
     spawnPowerup() {
-        const powerupTypes = ['machinegun', 'ricochet', 'speed', 'noclip', 'cannon', 'gravity'];
+        const powerupTypes = ['machinegun', 'ricochet', 'speed', 'noclip', 'cannon', 'gravity', 'railgun', 'blink', 'bouncyball'];
         const type = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
 
         // Random position avoiding walls
@@ -270,6 +272,14 @@ class GameRoom {
                     // Player collected powerup
                     player.powerup = powerup.type;
                     player.powerupTime = this.gameState.gameTime;
+
+                    // Add notification for all players to see
+                    this.gameState.powerupNotifications.push({
+                        playerName: player.name,
+                        powerupType: powerup.type,
+                        time: this.gameState.gameTime
+                    });
+
                     console.log(`💊 ${player.name} collected ${powerup.type} powerup!`);
                     return false; // Remove powerup
                 }
@@ -333,6 +343,11 @@ class GameRoom {
 
         this.gameState.gameTime += deltaTime;
 
+        // Clean up old notifications (remove after 3 seconds)
+        this.gameState.powerupNotifications = this.gameState.powerupNotifications.filter(
+            notif => (this.gameState.gameTime - notif.time) < 3
+        );
+
         // Check for powerup expiration (5 seconds)
         Object.values(this.gameState.players).forEach(player => {
             if (player.powerup && player.powerupTime !== undefined) {
@@ -344,6 +359,18 @@ class GameRoom {
                 }
             }
         });
+
+        // Random powerup spawning (max 2 during game, random intervals 10-30 seconds)
+        if (this.gameState.powerupsSpawned < 2 && this.gameState.powerups.length === 0) {
+            const timeSinceLastSpawn = this.gameState.gameTime - this.gameState.lastPowerupSpawn;
+            const randomInterval = 10 + Math.random() * 20; // 10-30 seconds
+
+            if (timeSinceLastSpawn >= randomInterval) {
+                this.spawnPowerup();
+                this.gameState.powerupsSpawned++;
+                this.gameState.lastPowerupSpawn = this.gameState.gameTime;
+            }
+        }
 
         // Activate zone after 5 seconds
         if (!this.gameState.zone.active && this.gameState.gameTime >= 5) {

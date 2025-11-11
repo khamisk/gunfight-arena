@@ -283,6 +283,21 @@
             border-color: #9900ff;
             color: #9900ff;
         }
+
+        #powerupTimer.railgun {
+            border-color: #ff0000;
+            color: #ff0000;
+        }
+
+        #powerupTimer.blink {
+            border-color: #00ccff;
+            color: #00ccff;
+        }
+
+        #powerupTimer.bouncyball {
+            border-color: #ffff00;
+            color: #ffff00;
+        }
     </style>
 </head>
 
@@ -640,6 +655,9 @@
                         case 'noclip': powerupName = 'NO CLIP'; break;
                         case 'cannon': powerupName = 'CANNON'; break;
                         case 'gravity': powerupName = 'GRAVITY WELL'; break;
+                        case 'railgun': powerupName = 'RAILGUN'; break;
+                        case 'blink': powerupName = 'BLINK DASH'; break;
+                        case 'bouncyball': powerupName = 'BOUNCY BALL'; break;
                         default: powerupName = ourPlayer.powerup.toUpperCase();
                     }
 
@@ -671,6 +689,37 @@
                 ctx.strokeStyle = '#ff0000';
                 ctx.lineWidth = 3;
                 ctx.strokeRect(gameState.zone.x * scaleX, gameState.zone.y * scaleY, gameState.zone.width * scaleX, gameState.zone.height * scaleY);
+            }
+
+            // Draw powerup notifications
+            if (gameState.powerupNotifications && gameState.powerupNotifications.length > 0) {
+                gameState.powerupNotifications.forEach((notif, index) => {
+                    const elapsed = gameState.gameTime - notif.time;
+                    const opacity = Math.max(0, 1 - elapsed / 3); // Fade out over 3 seconds
+
+                    const powerupNames = {
+                        'machinegun': 'Machine Gun', 'ricochet': 'Ricochet Gun',
+                        'speed': 'Speed Boost', 'noclip': 'No Clip',
+                        'cannon': 'Cannon', 'gravity': 'Gravity Well',
+                        'railgun': 'Railgun', 'blink': 'Blink Dash',
+                        'bouncyball': 'Bouncy Ball'
+                    };
+
+                    const message = `${notif.playerName} got ${powerupNames[notif.powerupType] || notif.powerupType}!`;
+
+                    ctx.save();
+                    ctx.globalAlpha = opacity;
+                    ctx.fillStyle = '#ffcc00';
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 3;
+                    ctx.font = 'bold 18px Arial';
+                    ctx.textAlign = 'center';
+
+                    const y = 80 + (index * 30);
+                    ctx.strokeText(message, canvas.width / 2, y);
+                    ctx.fillText(message, canvas.width / 2, y);
+                    ctx.restore();
+                });
             }
 
             ctx.fillStyle = '#444';
@@ -713,6 +762,18 @@
                         case 'gravity':
                             color = '#9900ff'; // Purple
                             label = 'GRAV';
+                            break;
+                        case 'railgun':
+                            color = '#ff0000'; // Red
+                            label = 'RAIL';
+                            break;
+                        case 'blink':
+                            color = '#00ccff'; // Light blue
+                            label = 'BLNK';
+                            break;
+                        case 'bouncyball':
+                            color = '#ffff00'; // Yellow
+                            label = 'BNCY';
                             break;
                         default:
                             color = '#ffffff';
