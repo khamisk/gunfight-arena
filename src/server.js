@@ -740,7 +740,8 @@ wss.on('connection', (ws) => {
                     if (targetLobby && targetLobby.hostId === playerId) {
                         console.log(`🎮 Host starting game in lobby: ${targetLobby.name}`);
                         startGame(targetLobby);
-                        lobbies.delete(targetLobby.id);
+                        // DON'T delete the lobby - keep it for after game ends
+                        // lobbies.delete(targetLobby.id);
                         broadcastLobbyList();
                     }
                 }

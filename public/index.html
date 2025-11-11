@@ -651,6 +651,7 @@
         }
 
         function updateLobbyRoom(lobby, isHostPlayer) {
+            console.log('📊 Updating lobby room. isHost:', isHostPlayer);
             isHost = isHostPlayer;
             const playersList = document.getElementById('queuedPlayersList');
             const playerCountSpan = document.getElementById('playerCount');
@@ -658,9 +659,10 @@
             playerCountSpan.textContent = lobby.players.length;
 
             lobby.players.forEach(player => {
-                // Update our player color if it changed
-                if (player.id === playerId) {
+                // Update our player color if it changed (match by name)
+                if (player.name === playerName) {
                     playerColor = player.color;
+                    playerId = player.id; // Update our playerId to match server
                 }
 
                 const playerDiv = document.createElement('div');
@@ -709,6 +711,7 @@
             const startBtn = document.getElementById('startGameBtn');
             if (startBtn) {
                 startBtn.style.display = isHost ? 'inline-block' : 'none';
+                console.log('🎮 Start button display:', startBtn.style.display, 'isHost:', isHost);
             }
 
             // Update color selector to highlight current color
@@ -863,8 +866,12 @@
         });
 
         document.getElementById('startGameBtn').addEventListener('click', () => {
+            console.log('🎮 Start button clicked! ws:', !!ws, 'isHost:', isHost);
             if (ws && isHost) {
+                console.log('📤 Sending start_game message');
                 ws.send(JSON.stringify({ type: 'start_game' }));
+            } else {
+                console.log('❌ Cannot start game - ws:', !!ws, 'isHost:', isHost);
             }
         });
 
@@ -1008,25 +1015,20 @@
             const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
             if (!ourPlayer) return;
 
-            // Get accurate canvas position with rect
+            // Get canvas position and size
             const rect = canvas.getBoundingClientRect();
 
-            // Mouse position relative to canvas (screen space)
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+            // Mouse position relative to canvas (in pixels on screen)
+            const mouseScreenX = e.clientX - rect.left;
+            const mouseScreenY = e.clientY - rect.top;
 
-            // Convert mouse position from screen space to game world space
-            // Game world is always 800x600, scale based on how canvas is rendered
-            const scaleX = canvas.width / 800;
-            const scaleY = canvas.height / 600;
+            // Convert to game world coordinates (800x600 game world)
+            const gameMouseX = (mouseScreenX / rect.width) * 800;
+            const gameMouseY = (mouseScreenY / rect.height) * 600;
 
-            // Player position in screen space
-            const playerScreenX = ourPlayer.x * scaleX;
-            const playerScreenY = ourPlayer.y * scaleY;
-
-            // Calculate angle from player to mouse in screen space
-            const dx = mouseX - playerScreenX;
-            const dy = mouseY - playerScreenY;
+            // Calculate angle from player position (in game world) to mouse position (in game world)
+            const dx = gameMouseX - ourPlayer.x;
+            const dy = gameMouseY - ourPlayer.y;
 
             // Only update if we have a valid angle (not at exact same position)
             if (dx !== 0 || dy !== 0) {
