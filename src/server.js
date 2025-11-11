@@ -206,7 +206,16 @@ class GameRoom {
     }
 
     update(deltaTime) {
+        const updateStartTime = Date.now();
+
         try {
+            // Cap deltaTime to prevent huge jumps from causing issues
+            // Max 0.1s (100ms) to prevent extreme position changes
+            if (deltaTime > 0.1) {
+                console.warn(`⚠️ Large deltaTime capped: ${deltaTime.toFixed(3)}s -> 0.1s`);
+                deltaTime = 0.1;
+            }
+
             const mapWidth = 800;
             const mapHeight = 600;
 
@@ -236,24 +245,20 @@ class GameRoom {
                 // Try moving X
                 player.x += player.vx * deltaTime;
                 if (!hasNoclip) {
-                    let xCollision = false;
-                    this.gameState.walls.forEach(wall => {
-                        if (this.isCollidingWithWall(player, wall)) {
-                            xCollision = true;
-                        }
-                    });
+                    // Use .some() to stop checking once collision found (optimization)
+                    const xCollision = this.gameState.walls.some(wall =>
+                        this.isCollidingWithWall(player, wall)
+                    );
                     if (xCollision) player.x = oldX;
                 }
 
                 // Try moving Y
                 player.y += player.vy * deltaTime;
                 if (!hasNoclip) {
-                    let yCollision = false;
-                    this.gameState.walls.forEach(wall => {
-                        if (this.isCollidingWithWall(player, wall)) {
-                            yCollision = true;
-                        }
-                    });
+                    // Use .some() to stop checking once collision found (optimization)
+                    const yCollision = this.gameState.walls.some(wall =>
+                        this.isCollidingWithWall(player, wall)
+                    );
                     if (yCollision) player.y = oldY;
                 }
 
@@ -363,8 +368,9 @@ class GameRoom {
                                 // Move bullet away from wall to prevent re-collision
                                 bullet.x += bullet.vx * deltaTime * 2;
                                 bullet.y += bullet.vy * deltaTime * 2;
+                                break; // Stop checking walls after first collision
                             } else {
-                                return false;
+                                return false; // Remove bullet
                             }
                         }
                     }
@@ -402,6 +408,13 @@ class GameRoom {
 
                 return true;
             });
+
+            // Safety: limit total bullets to prevent memory issues
+            const MAX_BULLETS = 500;
+            if (this.gameState.bullets.length > MAX_BULLETS) {
+                console.warn(`⚠️ Too many bullets (${this.gameState.bullets.length}), removing oldest`);
+                this.gameState.bullets = this.gameState.bullets.slice(-MAX_BULLETS);
+            }
 
             this.gameState.gameTime += deltaTime;
 
@@ -482,6 +495,12 @@ class GameRoom {
                         player.health -= 10 * deltaTime; // 10 damage per second
                     }
                 });
+            }
+
+            // Watchdog: warn if update took too long (blocking event loop)
+            const updateDuration = Date.now() - updateStartTime;
+            if (updateDuration > 16) { // More than 1 frame at 60fps
+                console.warn(`⚠️ Slow update: ${updateDuration}ms (players: ${Object.keys(this.gameState.players).length}, bullets: ${this.gameState.bullets.length})`);
             }
         } catch (error) {
             console.error('❌ ERROR in update() - Game may freeze:', error);
@@ -1120,19 +1139,29 @@ function broadcastLobbyList() {
 
         let sentCount = 0;
         let errorCount = 0;
+        let skippedCount = 0;
 
         // Only send to clients not currently in a game
         wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                try {
-                    client.send(message);
-                    sentCount++;
-                } catch (e) {
-                    errorCount++;
-                    console.error('Error sending to client:', e.message);
-                }
+            // Skip non-open connections immediately (optimization)
+            if (client.readyState !== WebSocket.OPEN) {
+                skippedCount++;
+                return;
+            }
+            
+            try {
+                client.send(message);
+                sentCount++;
+            } catch (e) {
+                errorCount++;
+                console.error('Error sending to client:', e.message);
             }
         });
+
+        // Warn if too many dead connections
+        if (skippedCount > 10) {
+            console.warn(`⚠️ ${skippedCount} dead connections still in wss.clients`);
+        }
 
         if (errorCount > 0) {
             console.warn(`⚠️ Lobby broadcast: ${sentCount} sent, ${errorCount} errors`);
@@ -1212,24 +1241,32 @@ function broadcastToLobby(lobbyId) {
 
     let loopIterations = 0;
     let lastLoopLog = Date.now();
+    let lastLoopTime = Date.now();
 
     const gameLoop = setInterval(() => {
         const now = Date.now();
         const deltaTime = (now - lastUpdateTime) / 1000;
         lastUpdateTime = now;
 
+        // Detect if loop stopped running (freeze detection)
+        const timeSinceLastLoop = now - lastLoopTime;
+        if (timeSinceLastLoop > 200) { // More than 200ms since last loop
+            console.error(`❌ Game loop was frozen for ${timeSinceLastLoop}ms!`);
+        }
+        lastLoopTime = now;
+
         loopIterations++;
 
         // Log loop health every 5 seconds
         if (now - lastLoopLog > 5000) {
-            console.log(`🔄 Game loop health check: ${loopIterations} iterations in 5s, deltaTime: ${deltaTime.toFixed(3)}s`);
+            console.log(`🔄 Game loop health: ${loopIterations} iterations in 5s, avg: ${(5000/loopIterations).toFixed(1)}ms/frame`);
             loopIterations = 0;
             lastLoopLog = now;
         }
 
         // Detect abnormal deltaTime (could indicate freeze recovery)
         if (deltaTime > 0.5) {
-            console.warn(`⚠️ Abnormal deltaTime detected: ${deltaTime}s - possible freeze or lag spike`);
+            console.warn(`⚠️ Abnormal deltaTime: ${deltaTime.toFixed(3)}s - possible freeze or lag spike`);
         }
 
         room.update(deltaTime);
