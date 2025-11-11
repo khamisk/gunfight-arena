@@ -538,6 +538,10 @@ class GameRoom {
 
         player.railgunCharging = false;
 
+        // Remove railgun powerup after firing (one-time use)
+        player.powerup = null;
+        player.powerupTime = undefined;
+
         // Fire railgun beam as a projectile (extremely fast but has travel time)
         const beamSpeed = 2500; // Very fast but barely dodgeable
         const beam = {
@@ -553,7 +557,7 @@ class GameRoom {
         };
         this.gameState.bullets.push(beam);
 
-        console.log(`⚡ ${player.name} fired railgun!`);
+        console.log(`⚡ ${player.name} fired railgun! (one-time use consumed)`);
     }
 
     blinkDash(playerId, angle) {
