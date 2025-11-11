@@ -1200,26 +1200,13 @@
                 vy /= magnitude;
             }
 
-            const now = Date.now();
-            const timeSinceLastUpdate = now - lastUpdateTime;
-
-            // Send update if movement changed OR if enough time passed (50ms throttle for angle updates)
-            const movementChanged = vx !== lastSentVx || vy !== lastSentVy;
-            const shouldUpdate = movementChanged || timeSinceLastUpdate > 50;
-
-            if (shouldUpdate) {
-                ws.send(JSON.stringify({
-                    type: 'move',
-                    vx: vx,
-                    vy: vy,
-                    angle: mouseAngle
-                }));
-
-                lastSentAngle = mouseAngle;
-                lastSentVx = vx;
-                lastSentVy = vy;
-                lastUpdateTime = now;
-            }
+            // Always send movement and angle updates
+            ws.send(JSON.stringify({
+                type: 'move',
+                vx: vx,
+                vy: vy,
+                angle: mouseAngle
+            }));
         }
 
         function render() {
@@ -1446,18 +1433,15 @@
                 ctx.fill();
 
                 if (player.health > 0) {
-                    // Draw gun direction - use local mouseAngle for our player to avoid jerking
-                    const isOurPlayer = player.color === playerColor;
-                    const displayAngle = isOurPlayer ? mouseAngle : player.angle;
-
+                    // Draw gun direction
                     ctx.strokeStyle = '#fff';
                     ctx.lineWidth = 3;
                     ctx.globalAlpha = 1.0;
                     ctx.beginPath();
                     ctx.moveTo(player.x * scaleX, player.y * scaleY);
                     ctx.lineTo(
-                        (player.x + Math.cos(displayAngle) * 15) * scaleX,
-                        (player.y + Math.sin(displayAngle) * 15) * scaleY
+                        (player.x + Math.cos(player.angle) * 15) * scaleX,
+                        (player.y + Math.sin(player.angle) * 15) * scaleY
                     );
                     ctx.stroke();
                 }
@@ -1519,26 +1503,10 @@
                 ctx.fillStyle = player.health > 50 ? '#2ecc71' : player.health > 25 ? '#f39c12' : '#e74c3c';
                 ctx.fillRect((player.x - 15) * scaleX, (player.y - 30) * scaleY, 30 * healthPercent * scaleX, 5 * scaleY);
 
-                // Railgun charging indicator and beam preview
+                // Railgun charging indicator
                 if (player.railgunCharging) {
                     const chargeTime = gameState.gameTime - player.railgunChargeStart;
                     const chargePercent = Math.min(chargeTime / 2, 1); // 2 seconds to full charge
-
-                    // Draw charge beam preview (where it will fire)
-                    const beamLength = 2000;
-                    const endX = player.x + Math.cos(player.angle) * beamLength;
-                    const endY = player.y + Math.sin(player.angle) * beamLength;
-
-                    ctx.strokeStyle = chargePercent >= 1 ? 'rgba(255, 0, 0, 0.5)' : 'rgba(255, 100, 100, 0.3)';
-                    ctx.lineWidth = 6;
-                    ctx.shadowBlur = 20;
-                    ctx.shadowColor = '#ff0000';
-
-                    ctx.beginPath();
-                    ctx.moveTo(player.x * scaleX, player.y * scaleY);
-                    ctx.lineTo(endX * scaleX, endY * scaleY);
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
 
                     // Charging bar
                     ctx.fillStyle = '#222';
@@ -1553,7 +1521,7 @@
                     ctx.textAlign = 'center';
                     ctx.strokeStyle = '#000';
                     ctx.lineWidth = 3;
-                    const statusText = chargePercent >= 1 ? `${player.name} READY TO FIRE!` : `${player.name} CHARGING RAILGUN...`;
+                    const statusText = chargePercent >= 1 ? 'READY!' : 'CHARGING...';
                     ctx.strokeText(statusText, player.x * scaleX, (player.y - 50) * scaleY);
                     ctx.fillText(statusText, player.x * scaleX, (player.y - 50) * scaleY);
                 }
