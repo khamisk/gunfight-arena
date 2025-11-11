@@ -206,12 +206,6 @@ class GameRoom {
     }
 
     update(deltaTime) {
-        // Validate deltaTime to prevent infinite loops or NaN propagation
-        if (typeof deltaTime !== 'number' || isNaN(deltaTime) || !isFinite(deltaTime) || deltaTime <= 0 || deltaTime > 1) {
-            console.warn(`⚠️ Invalid deltaTime: ${deltaTime}, skipping update`);
-            return;
-        }
-
         try {
             const mapWidth = 800;
             const mapHeight = 600;
@@ -1020,16 +1014,44 @@ wss.on('connection', (ws) => {
                 }
             }
 
-            if (data.type === 'admin_kill_all') {
+            if (data.type === 'admin_reset_game') {
                 const room = Array.from(gameRooms.values()).find(r =>
                     r.gameState.players[playerId]
                 );
                 if (room) {
-                    console.log(`💀 Admin Kill All activated!`);
-                    // Set all players' health to 0
-                    Object.values(room.gameState.players).forEach(player => {
-                        player.health = 0;
-                    });
+                    console.log(`� Admin: Force resetting game!`);
+
+                    // Force end current game by clearing game loop
+                    if (room.gameLoop) {
+                        clearInterval(room.gameLoop);
+                    }
+
+                    // Delete the game room
+                    gameRooms.delete(room.roomId);
+
+                    // Get the lobby
+                    const lobby = lobbies.get(room.roomId);
+                    if (lobby) {
+                        // Reset lobby to waiting state
+                        lobby.gameActive = false;
+
+                        // Notify all players to return to lobby
+                        lobby.players.forEach(player => {
+                            const conn = playerConnections.get(player.id);
+                            if (conn && conn.ws && conn.ws.readyState === WebSocket.OPEN) {
+                                conn.ws.send(JSON.stringify({
+                                    type: 'game_ended',
+                                    winner: null,
+                                    resetByAdmin: true
+                                }));
+                            }
+                        });
+
+                        broadcastToLobby(room.roomId);
+                        broadcastLobbyList();
+                    }
+
+                    console.log(`✅ Game forcefully reset by admin`);
                 }
             }
 
@@ -1260,6 +1282,9 @@ function broadcastToLobby(lobbyId) {
             endGame(room, players, gameLoop);
         }
     }, 1000 / 60);
+
+    // Store game loop reference in room for admin reset
+    room.gameLoop = gameLoop;
 
     setTimeout(() => {
         console.log(`🏁 GAME ENDED - Time expired`);

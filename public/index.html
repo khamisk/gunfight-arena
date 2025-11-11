@@ -592,9 +592,9 @@
                 <button class="admin-powerup-btn" data-powerup="bouncyball"
                     style="padding: 8px; background: #f1c40f; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; grid-column: span 2;">Bouncy
                     Ball</button>
-                <button id="adminKillAll"
-                    style="padding: 10px; background: #c0392b; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; grid-column: span 2; color: white; font-size: 14px; margin-top: 10px;">💀
-                    KILL ALL</button>
+                <button id="adminResetGame"
+                    style="padding: 10px; background: #e74c3c; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; grid-column: span 2; color: white; font-size: 14px; margin-top: 10px;">�
+                    RESET GAME</button>
             </div>
         </div>
     </div>
@@ -815,12 +815,12 @@
             });
         });
 
-        // Admin Kill All button
-        document.getElementById('adminKillAll').addEventListener('click', () => {
-            if (ws && gameState && adminAuthenticated) {
-                if (confirm('Kill all players? This will end the game immediately.')) {
+        // Admin Reset Game button
+        document.getElementById('adminResetGame').addEventListener('click', () => {
+            if (ws && adminAuthenticated) {
+                if (confirm('Force reset the game? This will immediately restart the game for all players.')) {
                     ws.send(JSON.stringify({
-                        type: 'admin_kill_all'
+                        type: 'admin_reset_game'
                     }));
                 }
             }
