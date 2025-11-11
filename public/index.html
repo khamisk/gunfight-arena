@@ -1038,49 +1038,58 @@
 
         let isMouseDown = false;
 
-        canvas.addEventListener('mousedown', () => {
+        // Mousedown for shooting and railgun charging
+        canvas.addEventListener('mousedown', (e) => {
             isMouseDown = true;
-        });
 
-        window.addEventListener('mouseup', () => {
-            isMouseDown = false;
-        });
-
-        // Clicking for shooting and railgun
-        canvas.addEventListener('click', () => {
             if (!ws || !gameState) return;
 
             const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
             if (!ourPlayer) return;
 
-            // Railgun click handling
+            // Railgun: hold to charge
             if (ourPlayer.powerup === 'railgun') {
                 if (!railgunCharging) {
-                    // First click: start charging
                     railgunCharging = true;
                     ws.send(JSON.stringify({
                         type: 'railgun_charge_start'
                     }));
-                } else if (ourPlayer.railgunCharging) {
-                    // Second click: fire if ready
-                    const chargeTime = gameState.gameTime - ourPlayer.railgunChargeStart;
-                    if (chargeTime >= 2) {
-                        railgunCharging = false;
-                        ws.send(JSON.stringify({
-                            type: 'railgun_fire',
-                            angle: mouseAngle
-                        }));
-                    }
                 }
                 return;
             }
 
-            // Normal shooting
-            if (ws && gameState) {
-                ws.send(JSON.stringify({
-                    type: 'shoot',
-                    angle: mouseAngle
-                }));
+            // Normal shooting - single click
+            ws.send(JSON.stringify({
+                type: 'shoot',
+                angle: mouseAngle
+            }));
+        });
+
+        // Mouseup to fire railgun and stop continuous fire
+        window.addEventListener('mouseup', () => {
+            isMouseDown = false;
+
+            if (!ws || !gameState) return;
+
+            const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
+            if (!ourPlayer) return;
+
+            // Fire railgun on release if charged
+            if (ourPlayer.powerup === 'railgun' && railgunCharging && ourPlayer.railgunCharging) {
+                const chargeTime = gameState.gameTime - ourPlayer.railgunChargeStart;
+                if (chargeTime >= 2) {
+                    railgunCharging = false;
+                    ws.send(JSON.stringify({
+                        type: 'railgun_fire',
+                        angle: mouseAngle
+                    }));
+                } else {
+                    // Not charged enough - cancel
+                    railgunCharging = false;
+                    ws.send(JSON.stringify({
+                        type: 'railgun_charge_cancel'
+                    }));
+                }
             }
         });
 
@@ -1509,10 +1518,26 @@
                 ctx.fillStyle = player.health > 50 ? '#2ecc71' : player.health > 25 ? '#f39c12' : '#e74c3c';
                 ctx.fillRect((player.x - 15) * scaleX, (player.y - 30) * scaleY, 30 * healthPercent * scaleX, 5 * scaleY);
 
-                // Railgun charging indicator
+                // Railgun charging indicator and beam preview
                 if (player.railgunCharging) {
                     const chargeTime = gameState.gameTime - player.railgunChargeStart;
                     const chargePercent = Math.min(chargeTime / 2, 1); // 2 seconds to full charge
+
+                    // Draw charge beam preview (where it will fire)
+                    const beamLength = 2000;
+                    const endX = player.x + Math.cos(player.angle) * beamLength;
+                    const endY = player.y + Math.sin(player.angle) * beamLength;
+
+                    ctx.strokeStyle = chargePercent >= 1 ? 'rgba(255, 0, 0, 0.6)' : 'rgba(255, 100, 100, 0.3)';
+                    ctx.lineWidth = 8;
+                    ctx.shadowBlur = 30;
+                    ctx.shadowColor = '#ff0000';
+
+                    ctx.beginPath();
+                    ctx.moveTo(player.x * scaleX, player.y * scaleY);
+                    ctx.lineTo(endX * scaleX, endY * scaleY);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
 
                     // Charging bar
                     ctx.fillStyle = '#222';
@@ -1521,13 +1546,13 @@
                     ctx.fillStyle = chargePercent >= 1 ? '#00ff00' : '#ff0000';
                     ctx.fillRect((player.x - 20) * scaleX, (player.y - 40) * scaleY, 40 * chargePercent * scaleX, 6 * scaleY);
 
-                    // Text showing player name is charging (visible to all)
+                    // Text showing charging status
                     ctx.fillStyle = '#ff0000';
                     ctx.font = 'bold 12px Arial';
                     ctx.textAlign = 'center';
                     ctx.strokeStyle = '#000';
                     ctx.lineWidth = 3;
-                    const statusText = chargePercent >= 1 ? 'READY!' : 'CHARGING...';
+                    const statusText = chargePercent >= 1 ? `${player.name} READY TO FIRE!` : `${player.name} CHARGING...`;
                     ctx.strokeText(statusText, player.x * scaleX, (player.y - 50) * scaleY);
                     ctx.fillText(statusText, player.x * scaleX, (player.y - 50) * scaleY);
                 }
