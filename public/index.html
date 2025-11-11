@@ -1011,18 +1011,22 @@
             // Get accurate canvas position with rect
             const rect = canvas.getBoundingClientRect();
 
-            // Mouse position relative to canvas
+            // Mouse position relative to canvas (screen space)
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
             // Convert mouse position from screen space to game world space
-            // Game world is always 800x600, but the canvas display size might be different
-            const gameWorldMouseX = (mouseX / rect.width) * 800;
-            const gameWorldMouseY = (mouseY / rect.height) * 600;
+            // Game world is always 800x600, scale based on how canvas is rendered
+            const scaleX = canvas.width / 800;
+            const scaleY = canvas.height / 600;
 
-            // Calculate angle from player position to mouse position in game world
-            const dx = gameWorldMouseX - ourPlayer.x;
-            const dy = gameWorldMouseY - ourPlayer.y;
+            // Player position in screen space
+            const playerScreenX = ourPlayer.x * scaleX;
+            const playerScreenY = ourPlayer.y * scaleY;
+
+            // Calculate angle from player to mouse in screen space
+            const dx = mouseX - playerScreenX;
+            const dy = mouseY - playerScreenY;
 
             // Only update if we have a valid angle (not at exact same position)
             if (dx !== 0 || dy !== 0) {
