@@ -1152,6 +1152,12 @@
                 const data = JSON.parse(event.data);
                 console.log('📨 Received:', data.type);
 
+                // Ignore lobby updates when in game
+                if (gameState && (data.type === 'lobbies_list' || data.type === 'lobby_update')) {
+                    console.log('⚠️ Ignoring lobby update while in game');
+                    return;
+                }
+
                 if (data.type === 'lobbies_list') {
                     renderLobbiesList(data.lobbies);
                 }

@@ -175,8 +175,8 @@ class GameRoom {
 
         walls.push(...coverSpots);
 
-        // Add scattered thin cover pieces distributed evenly (25-30 walls, more in outer-middle)
-        const randomCount = 25 + Math.floor(Math.random() * 6);
+        // Add scattered thin cover pieces distributed evenly (40-50 walls for more tactical gameplay)
+        const randomCount = 40 + Math.floor(Math.random() * 11);
         // Divide map into grid zones to ensure distribution - more focus on outer-middle areas
         const zones = [
             { minX: 120, maxX: 300, minY: 120, maxY: 240 }, // Top-left quadrant
@@ -187,6 +187,7 @@ class GameRoom {
             { minX: 250, maxX: 550, minY: 380, maxY: 500 }, // Bottom-mid (outer)
             { minX: 100, maxX: 250, minY: 250, maxY: 350 }, // Left-mid (outer)
             { minX: 550, maxX: 700, minY: 250, maxY: 350 }, // Right-mid (outer)
+            { minX: 300, maxX: 500, minY: 200, maxY: 400 }, // Center area (more walls)
         ];
 
         for (let i = 0; i < randomCount; i++) {
@@ -405,15 +406,15 @@ class GameRoom {
             }
         }
 
-        // Activate zone after 5 seconds
-        if (!this.gameState.zone.active && this.gameState.gameTime >= 5) {
+        // Activate zone after 10 seconds (give players more time)
+        if (!this.gameState.zone.active && this.gameState.gameTime >= 10) {
             this.gameState.zone.active = true;
             this.gameState.zone.startTime = this.gameState.gameTime;
         }
 
-        // Update zone - shrink over 30 seconds to fully closed
+        // Update zone - shrink over 50 seconds to fully closed (slower)
         if (this.gameState.zone.active) {
-            const zoneDuration = 30;
+            const zoneDuration = 50;
             const elapsed = this.gameState.gameTime - this.gameState.zone.startTime;
             const progress = Math.min(elapsed / zoneDuration, 1);
 
@@ -625,10 +626,14 @@ wss.on('connection', (ws) => {
                     hostName: lobby.players.find(p => p.id === lobby.hostId)?.name || 'Host'
                 }));
 
-                ws.send(JSON.stringify({
-                    type: 'lobbies_list',
-                    lobbies: lobbiesList
-                }));
+                try {
+                    ws.send(JSON.stringify({
+                        type: 'lobbies_list',
+                        lobbies: lobbiesList
+                    }));
+                } catch (e) {
+                    console.error('Error sending lobby list:', e);
+                }
             }
 
             // Create lobby
@@ -978,12 +983,17 @@ function broadcastLobbyList() {
         hostName: lobby.players.find(p => p.id === lobby.hostId)?.name || 'Host'
     }));
 
+    // Only send to clients not currently in a game
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-                type: 'lobbies_list',
-                lobbies: lobbiesList
-            }));
+            try {
+                client.send(JSON.stringify({
+                    type: 'lobbies_list',
+                    lobbies: lobbiesList
+                }));
+            } catch (e) {
+                console.error('Error broadcasting lobby list:', e);
+            }
         }
     });
 }
