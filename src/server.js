@@ -342,8 +342,19 @@ class GameRoom {
 
             for (let playerId in this.gameState.players) {
                 const player = this.gameState.players[playerId];
-                // Huge bouncy ball (infiniteBounce) can damage the shooter too
-                const canHit = bullet.bounces === 999999 ? player.health > 0 : (player.id !== bullet.playerId && player.health > 0);
+
+                // Huge bouncy ball (infiniteBounce) can damage the shooter too, but with 1 second immunity
+                let canHit;
+                if (bullet.bounces === 999999) {
+                    // Bouncy ball - check immunity period
+                    const immunityTime = bullet.spawnTime ? (this.gameState.gameTime - bullet.spawnTime) : 999;
+                    const isShooter = player.id === bullet.playerId;
+                    canHit = player.health > 0 && (!isShooter || immunityTime >= 1); // 1 second immunity for shooter
+                } else {
+                    // Normal bullets - can't hit shooter
+                    canHit = player.id !== bullet.playerId && player.health > 0;
+                }
+
                 if (canHit) {
                     if (this.bulletCollidesWithPlayer(bullet, player)) {
                         player.health -= bullet.damage; // Use bullet's damage value
@@ -472,6 +483,12 @@ class GameRoom {
         const player = this.gameState.players[playerId];
         if (!player || player.health <= 0) return;
 
+        // Validate angle - prevent NaN or invalid values that can freeze the server
+        if (typeof angle !== 'number' || isNaN(angle) || !isFinite(angle)) {
+            console.warn(`⚠️ Invalid angle received from ${player.name}: ${angle}`);
+            return;
+        }
+
         const now = Date.now();
         let cooldown = 500; // Default cooldown
         let damage = 50; // Default damage (2-shot kill)
@@ -525,7 +542,8 @@ class GameRoom {
             ricochet: ricochet || infiniteBounce,
             bounces: infiniteBounce ? 999999 : (ricochet ? 5 : 0), // Ricochet now bounces 5 times
             throughWalls: throughWalls,
-            size: bulletSize
+            size: bulletSize,
+            spawnTime: infiniteBounce ? this.gameState.gameTime : undefined // Track spawn time for bouncy ball immunity
         };
         this.gameState.bullets.push(bullet);
     }
@@ -534,6 +552,12 @@ class GameRoom {
         const player = this.gameState.players[playerId];
         if (!player || player.health <= 0) return;
         if (player.powerup !== 'railgun' || !player.railgunCharging) return;
+
+        // Validate angle
+        if (typeof angle !== 'number' || isNaN(angle) || !isFinite(angle)) {
+            console.warn(`⚠️ Invalid railgun angle from ${player.name}: ${angle}`);
+            return;
+        }
 
         const chargeTime = this.gameState.gameTime - player.railgunChargeStart;
         if (chargeTime < 2) return; // Must charge for 2 seconds
@@ -566,6 +590,12 @@ class GameRoom {
         const player = this.gameState.players[playerId];
         if (!player || player.health <= 0) return;
         if (player.powerup !== 'blink') return;
+
+        // Validate angle
+        if (typeof angle !== 'number' || isNaN(angle) || !isFinite(angle)) {
+            console.warn(`⚠️ Invalid blink dash angle from ${player.name}: ${angle}`);
+            return;
+        }
 
         const now = this.gameState.gameTime;
         const powerupTime = player.powerupTime || 0;
@@ -842,6 +872,12 @@ wss.on('connection', (ws) => {
             }
 
             if (data.type === 'shoot') {
+                // Validate angle before processing
+                if (typeof data.angle !== 'number' || isNaN(data.angle) || !isFinite(data.angle)) {
+                    console.warn(`⚠️ Invalid shoot angle received: ${data.angle}`);
+                    return;
+                }
+
                 const room = Array.from(gameRooms.values()).find(r =>
                     r.gameState.players[playerId]
                 );

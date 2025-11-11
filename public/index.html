@@ -1106,18 +1106,18 @@
 
         // Mouseup to fire railgun and stop continuous fire
         window.addEventListener('mouseup', (e) => {
-            // Only process left mouse button
-            if (e.button === 0) {
-                isMouseDown = false;
-            }
+            // Only process left mouse button - ignore right-click and middle-click completely
+            if (e.button !== 0) return;
+
+            isMouseDown = false;
 
             if (!ws || !gameState) return;
 
             const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
             if (!ourPlayer) return;
 
-            // Fire railgun on release if charged (only on left mouse button)
-            if (e.button === 0 && ourPlayer.powerup === 'railgun' && railgunCharging && ourPlayer.railgunCharging) {
+            // Fire railgun on release if charged
+            if (ourPlayer.powerup === 'railgun' && railgunCharging && ourPlayer.railgunCharging) {
                 const chargeTime = gameState.gameTime - ourPlayer.railgunChargeStart;
                 if (chargeTime >= 2) {
                     railgunCharging = false;
