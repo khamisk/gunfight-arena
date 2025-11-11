@@ -52,23 +52,21 @@ class GameRoom {
             }
         };
 
-        // Better spawn positions for up to 6 players (corners + sides)
-        const potentialSpawns = [
-            { x: 100, y: 100 },
-            { x: 700, y: 100 },
-            { x: 100, y: 500 },
-            { x: 700, y: 500 },
-            { x: 400, y: 100 },
-            { x: 400, y: 500 }
-        ];
-
+        // Random spawn positions for all players
         players.forEach((player, idx) => {
-            // Find a spawn position that doesn't collide with walls
-            let spawn = potentialSpawns[idx % 6];
-            for (let attempt = 0; attempt < 20; attempt++) {
+            let spawn = null;
+
+            // Find a random spawn position that doesn't collide with walls
+            for (let attempt = 0; attempt < 50; attempt++) {
+                spawn = {
+                    x: 100 + Math.random() * 600,
+                    y: 100 + Math.random() * 400
+                };
+
                 let collides = false;
                 const testPlayer = { x: spawn.x, y: spawn.y };
 
+                // Check wall collision
                 for (let wall of this.gameState.walls) {
                     if (this.isCollidingWithWall(testPlayer, wall)) {
                         collides = true;
@@ -76,13 +74,17 @@ class GameRoom {
                     }
                 }
 
-                if (!collides) break;
+                // Check distance from other players (minimum 100 pixels apart)
+                for (let existingPlayerId in this.gameState.players) {
+                    const existing = this.gameState.players[existingPlayerId];
+                    const dist = Math.hypot(spawn.x - existing.x, spawn.y - existing.y);
+                    if (dist < 100) {
+                        collides = true;
+                        break;
+                    }
+                }
 
-                // Try random position
-                spawn = {
-                    x: 100 + Math.random() * 600,
-                    y: 100 + Math.random() * 400
-                };
+                if (!collides) break;
             }
 
             this.gameState.players[player.id] = {
@@ -110,7 +112,8 @@ class GameRoom {
             };
         });
 
-        // Don't spawn powerup at start - will spawn randomly during game
+        // Spawn one powerup at start
+        this.spawnPowerup();
     }
 
     spawnPowerup() {
@@ -184,16 +187,18 @@ class GameRoom {
 
         walls.push(...coverSpots);
 
-        // Add scattered thin cover pieces distributed evenly (15-20)
-        const randomCount = 15 + Math.floor(Math.random() * 6);
-        // Divide map into grid zones to ensure distribution
+        // Add scattered thin cover pieces distributed evenly (25-30 walls, more in outer-middle)
+        const randomCount = 25 + Math.floor(Math.random() * 6);
+        // Divide map into grid zones to ensure distribution - more focus on outer-middle areas
         const zones = [
             { minX: 120, maxX: 300, minY: 120, maxY: 240 }, // Top-left quadrant
             { minX: 500, maxX: 680, minY: 120, maxY: 240 }, // Top-right quadrant
             { minX: 120, maxX: 300, minY: 360, maxY: 480 }, // Bottom-left quadrant
             { minX: 500, maxX: 680, minY: 360, maxY: 480 }, // Bottom-right quadrant
-            { minX: 300, maxX: 500, minY: 120, maxY: 200 }, // Top-mid
-            { minX: 300, maxX: 500, minY: 400, maxY: 480 }, // Bottom-mid
+            { minX: 250, maxX: 550, minY: 100, maxY: 220 }, // Top-mid (outer)
+            { minX: 250, maxX: 550, minY: 380, maxY: 500 }, // Bottom-mid (outer)
+            { minX: 100, maxX: 250, minY: 250, maxY: 350 }, // Left-mid (outer)
+            { minX: 550, maxX: 700, minY: 250, maxY: 350 }, // Right-mid (outer)
         ];
 
         for (let i = 0; i < randomCount; i++) {
@@ -494,8 +499,11 @@ class GameRoom {
                 bulletSpeed = 500;
                 bulletSize = 40; // HUGE ball
                 infiniteBounce = true;
-            } else if (player.powerup === 'speed' || player.powerup === 'noclip' || player.powerup === 'gravity' || player.powerup === 'railgun' || player.powerup === 'blink') {
-                // These powerups don't affect shooting (railgun uses separate fire function)
+            } else if (player.powerup === 'railgun') {
+                // Railgun disables normal shooting
+                return;
+            } else if (player.powerup === 'speed' || player.powerup === 'noclip' || player.powerup === 'gravity' || player.powerup === 'blink') {
+                // These powerups don't affect shooting
             }
         }
 
@@ -511,7 +519,7 @@ class GameRoom {
             playerId: playerId,
             damage: damage,
             ricochet: ricochet || infiniteBounce,
-            bounces: infiniteBounce ? 999999 : (ricochet ? 3 : 0),
+            bounces: infiniteBounce ? 999999 : (ricochet ? 5 : 0), // Ricochet now bounces 5 times
             throughWalls: throughWalls,
             size: bulletSize
         };
@@ -528,43 +536,22 @@ class GameRoom {
 
         player.railgunCharging = false;
 
-        // Hitscan raycast through entire map
-        const maxDist = 2000;
-        const dx = Math.cos(angle);
-        const dy = Math.sin(angle);
-
-        // Find first player hit
-        for (let playerId2 in this.gameState.players) {
-            if (playerId2 === playerId) continue;
-            const target = this.gameState.players[playerId2];
-            if (target.health <= 0) continue;
-
-            // Check if target is on the laser line
-            const toTargetX = target.x - player.x;
-            const toTargetY = target.y - player.y;
-            const dot = toTargetX * dx + toTargetY * dy;
-            if (dot < 0) continue; // Behind
-
-            const closestX = player.x + dx * dot;
-            const closestY = player.y + dy * dot;
-            const dist = Math.hypot(closestX - target.x, closestY - target.y);
-
-            if (dist < 20) { // Hit radius
-                target.health = 0; // Instant kill
-                player.kills++;
-                console.log(`💥 ${player.name} railgun killed ${target.name}!`);
-                break; // Only hit first target
-            }
-        }
-
-        // Add visual laser effect
-        this.gameState.railgunLaser = {
-            startX: player.x,
-            startY: player.y,
-            angle: angle,
-            length: maxDist,
-            time: this.gameState.gameTime
+        // Fire railgun beam as a projectile (extremely fast but has travel time)
+        const beamSpeed = 2500; // Very fast but barely dodgeable
+        const beam = {
+            x: player.x,
+            y: player.y,
+            vx: Math.cos(angle) * beamSpeed,
+            vy: Math.sin(angle) * beamSpeed,
+            playerId: playerId,
+            damage: 100, // Instant kill
+            railgun: true,
+            size: 15, // Thick beam
+            throughWalls: true
         };
+        this.gameState.bullets.push(beam);
+
+        console.log(`⚡ ${player.name} fired railgun!`);
     }
 
     blinkDash(playerId, angle) {
@@ -757,6 +744,21 @@ wss.on('connection', (ws) => {
                         player.emoji = data.emoji;
                         player.emojiTime = room.gameState.gameTime;
                         console.log(`😀 ${player.name} used emoji: ${data.emoji}`);
+                    }
+                }
+            }
+
+            if (data.type === 'admin_powerup') {
+                const room = Array.from(gameRooms.values()).find(r =>
+                    r.gameState.players[playerId]
+                );
+                if (room) {
+                    const player = room.gameState.players[playerId];
+                    if (player && data.powerup) {
+                        player.powerup = data.powerup;
+                        player.powerupTime = room.gameState.gameTime;
+                        player.bouncyBallUsed = false; // Reset bouncy ball
+                        console.log(`⚡ Admin: ${player.name} got ${data.powerup}`);
                     }
                 }
             }

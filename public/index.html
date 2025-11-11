@@ -393,9 +393,9 @@
                 style="width: 400px; padding: 8px; border: 2px solid #3498db; border-radius: 3px; font-size: 14px;">
         </div>
         <div id="emojiWheel"
-            style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 50%; width: 200px; height: 200px;">
+            style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); padding: 20px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.3);">
             <div
-                style="text-align: center; color: white; font-size: 60px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                style="text-align: center; color: white; font-size: 50px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
                 <div class="emoji-option" data-emoji="happy" style="cursor: pointer; transition: transform 0.2s;">😊
                 </div>
                 <div class="emoji-option" data-emoji="sad" style="cursor: pointer; transition: transform 0.2s;">😢</div>
@@ -407,6 +407,31 @@
                 </div>
                 <div class="emoji-option" data-emoji="love" style="cursor: pointer; transition: transform 0.2s;">😍
                 </div>
+            </div>
+        </div>
+        <div id="adminPanel"
+            style="display: none; position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.9); padding: 20px; border-radius: 10px; border: 2px solid #f39c12; max-width: 250px;">
+            <h3 style="margin: 0 0 15px 0; color: #f39c12; font-size: 18px;">⚡ Admin Panel</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <button class="admin-powerup-btn" data-powerup="machinegun"
+                    style="padding: 8px; background: #2ecc71; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">MG</button>
+                <button class="admin-powerup-btn" data-powerup="ricochet"
+                    style="padding: 8px; background: #9b59b6; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Ricochet</button>
+                <button class="admin-powerup-btn" data-powerup="speed"
+                    style="padding: 8px; background: #3498db; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Speed</button>
+                <button class="admin-powerup-btn" data-powerup="noclip"
+                    style="padding: 8px; background: #95a5a6; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">NoClip</button>
+                <button class="admin-powerup-btn" data-powerup="cannon"
+                    style="padding: 8px; background: #e67e22; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Cannon</button>
+                <button class="admin-powerup-btn" data-powerup="gravity"
+                    style="padding: 8px; background: #8e44ad; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Gravity</button>
+                <button class="admin-powerup-btn" data-powerup="railgun"
+                    style="padding: 8px; background: #e74c3c; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Railgun</button>
+                <button class="admin-powerup-btn" data-powerup="blink"
+                    style="padding: 8px; background: #1abc9c; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Blink</button>
+                <button class="admin-powerup-btn" data-powerup="bouncyball"
+                    style="padding: 8px; background: #f1c40f; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; grid-column: span 2;">Bouncy
+                    Ball</button>
             </div>
         </div>
     </div>
@@ -471,6 +496,19 @@
             });
         });
 
+        // Admin powerup buttons
+        document.querySelectorAll('.admin-powerup-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const powerup = btn.dataset.powerup;
+                if (ws && gameState && adminAuthenticated) {
+                    ws.send(JSON.stringify({
+                        type: 'admin_powerup',
+                        powerup: powerup
+                    }));
+                }
+            });
+        });
+
         joinBtn.addEventListener('click', () => {
             const name = playerNameInput.value.trim();
             if (!name) {
@@ -498,10 +536,12 @@
         let railgunCharging = false;
         let chatOpen = false;
         let emojiWheelOpen = false;
+        let adminAuthenticated = false;
 
         const chatInputContainer = document.getElementById('chatInputContainer');
         const chatInput = document.getElementById('chatInput');
         const emojiWheel = document.getElementById('emojiWheel');
+        const adminPanel = document.getElementById('adminPanel');
 
         window.addEventListener('keydown', (e) => {
             // Chat input handling
@@ -541,6 +581,23 @@
                 e.preventDefault();
                 emojiWheelOpen = true;
                 emojiWheel.style.display = 'block';
+                return;
+            }
+
+            // Admin panel with P
+            if (e.key.toLowerCase() === 'p' && ws && gameState) {
+                e.preventDefault();
+
+                if (!adminAuthenticated) {
+                    const password = prompt('Enter admin password:');
+                    if (password === 'admin1') {
+                        adminAuthenticated = true;
+                        adminPanel.style.display = 'block';
+                    }
+                } else {
+                    // Toggle panel
+                    adminPanel.style.display = adminPanel.style.display === 'none' ? 'block' : 'none';
+                }
                 return;
             }
 
@@ -615,39 +672,42 @@
 
         canvas.addEventListener('mousedown', () => {
             isMouseDown = true;
-
-            // Start railgun charge if player has railgun
-            if (ws && gameState) {
-                const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
-                if (ourPlayer && ourPlayer.powerup === 'railgun' && !railgunCharging) {
-                    railgunCharging = true;
-                    ws.send(JSON.stringify({
-                        type: 'railgun_charge_start'
-                    }));
-                }
-            }
         });
 
         window.addEventListener('mouseup', () => {
             isMouseDown = false;
-
-            // Fire railgun if charging
-            if (railgunCharging && ws) {
-                railgunCharging = false;
-                ws.send(JSON.stringify({
-                    type: 'railgun_fire',
-                    angle: mouseAngle
-                }));
-            } else if (ws) {
-                // Cancel charge if released early
-                ws.send(JSON.stringify({
-                    type: 'railgun_charge_cancel'
-                }));
-            }
         });
 
-        // Clicking still works for single shots
+        // Clicking for shooting and railgun
         canvas.addEventListener('click', () => {
+            if (!ws || !gameState) return;
+
+            const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
+            if (!ourPlayer) return;
+
+            // Railgun click handling
+            if (ourPlayer.powerup === 'railgun') {
+                if (!railgunCharging) {
+                    // First click: start charging
+                    railgunCharging = true;
+                    ws.send(JSON.stringify({
+                        type: 'railgun_charge_start'
+                    }));
+                } else if (ourPlayer.railgunCharging) {
+                    // Second click: fire if ready
+                    const chargeTime = gameState.gameTime - ourPlayer.railgunChargeStart;
+                    if (chargeTime >= 2) {
+                        railgunCharging = false;
+                        ws.send(JSON.stringify({
+                            type: 'railgun_fire',
+                            angle: mouseAngle
+                        }));
+                    }
+                }
+                return;
+            }
+
+            // Normal shooting
             if (ws && gameState) {
                 ws.send(JSON.stringify({
                     type: 'shoot',
@@ -915,13 +975,13 @@
 
                     ctx.save();
                     ctx.globalAlpha = opacity;
-                    ctx.fillStyle = '#ffcc00';
+                    ctx.fillStyle = '#ffffff';
                     ctx.strokeStyle = '#000';
-                    ctx.lineWidth = 3;
-                    ctx.font = 'bold 18px Arial';
+                    ctx.lineWidth = 4;
+                    ctx.font = 'bold 20px Arial';
                     ctx.textAlign = 'center';
 
-                    const y = 80 + (index * 30);
+                    const y = 80 + (index * 35);
                     ctx.strokeText(message, canvas.width / 2, y);
                     ctx.fillText(message, canvas.width / 2, y);
                     ctx.restore();
@@ -1008,28 +1068,53 @@
 
             gameState.bullets.forEach(bullet => {
                 // Different colors and sizes for different bullet types
-                const isCannon = bullet.throughWalls;
+                const isRailgun = bullet.railgun;
+                const isCannon = bullet.throughWalls && !isRailgun;
                 const isBouncyBall = bullet.size >= 40;
                 const bulletSize = bullet.size || 5;
 
-                if (isBouncyBall) {
+                if (isRailgun) {
+                    // Draw railgun beam as thick line
+                    const length = 30; // Beam trail length
+                    const angle = Math.atan2(bullet.vy, bullet.vx);
+                    const startX = bullet.x - Math.cos(angle) * length;
+                    const startY = bullet.y - Math.sin(angle) * length;
+
+                    ctx.strokeStyle = '#ff0000';
+                    ctx.lineWidth = 8;
+                    ctx.shadowBlur = 30;
+                    ctx.shadowColor = '#ff0000';
+
+                    ctx.beginPath();
+                    ctx.moveTo(startX * scaleX, startY * scaleY);
+                    ctx.lineTo(bullet.x * scaleX, bullet.y * scaleY);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                } else if (isBouncyBall) {
                     ctx.shadowBlur = 30;
                     ctx.shadowColor = '#ffff00';
                     ctx.fillStyle = '#ffff00';
+                    ctx.beginPath();
+                    ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
                 } else if (isCannon) {
                     ctx.shadowBlur = 20;
                     ctx.shadowColor = '#ff6600';
                     ctx.fillStyle = '#ff6600';
+                    ctx.beginPath();
+                    ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
                 } else {
                     ctx.shadowBlur = 10;
                     ctx.shadowColor = '#ffff00';
                     ctx.fillStyle = '#ffff00';
+                    ctx.beginPath();
+                    ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
                 }
-
-                ctx.beginPath();
-                ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.shadowBlur = 0;
             });
 
             // Draw railgun laser
@@ -1140,10 +1225,26 @@
                 ctx.fillStyle = player.health > 50 ? '#2ecc71' : player.health > 25 ? '#f39c12' : '#e74c3c';
                 ctx.fillRect((player.x - 15) * scaleX, (player.y - 30) * scaleY, 30 * healthPercent * scaleX, 5 * scaleY);
 
-                // Railgun charging indicator
+                // Railgun charging indicator and beam preview
                 if (player.railgunCharging) {
                     const chargeTime = gameState.gameTime - player.railgunChargeStart;
                     const chargePercent = Math.min(chargeTime / 2, 1); // 2 seconds to full charge
+
+                    // Draw charge beam preview (where it will fire)
+                    const beamLength = 2000;
+                    const endX = player.x + Math.cos(player.angle) * beamLength;
+                    const endY = player.y + Math.sin(player.angle) * beamLength;
+
+                    ctx.strokeStyle = chargePercent >= 1 ? 'rgba(255, 0, 0, 0.5)' : 'rgba(255, 100, 100, 0.3)';
+                    ctx.lineWidth = 6;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = '#ff0000';
+
+                    ctx.beginPath();
+                    ctx.moveTo(player.x * scaleX, player.y * scaleY);
+                    ctx.lineTo(endX * scaleX, endY * scaleY);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
 
                     // Charging bar
                     ctx.fillStyle = '#222';
@@ -1152,11 +1253,15 @@
                     ctx.fillStyle = chargePercent >= 1 ? '#00ff00' : '#ff0000';
                     ctx.fillRect((player.x - 20) * scaleX, (player.y - 40) * scaleY, 40 * chargePercent * scaleX, 6 * scaleY);
 
-                    // Text
-                    ctx.fillStyle = '#fff';
-                    ctx.font = 'bold 10px Arial';
+                    // Text showing player name is charging (visible to all)
+                    ctx.fillStyle = '#ff0000';
+                    ctx.font = 'bold 12px Arial';
                     ctx.textAlign = 'center';
-                    ctx.fillText(chargePercent >= 1 ? 'READY!' : 'CHARGING...', player.x * scaleX, (player.y - 45) * scaleY);
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 3;
+                    const statusText = chargePercent >= 1 ? `${player.name} READY TO FIRE!` : `${player.name} CHARGING RAILGUN...`;
+                    ctx.strokeText(statusText, player.x * scaleX, (player.y - 50) * scaleY);
+                    ctx.fillText(statusText, player.x * scaleX, (player.y - 50) * scaleY);
                 }
 
                 // Blink dash indicator
