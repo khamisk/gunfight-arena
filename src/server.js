@@ -9,7 +9,7 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.static(path.join(__dirname, '../public')));
 
-const COLORS = ['blue', 'red', 'yellow', 'green'];
+const COLORS = ['blue', 'red', 'yellow', 'green', 'purple', 'orange'];
 let lobby = null;
 let gameRooms = new Map();
 let playerConnections = new Map();
@@ -41,6 +41,7 @@ class GameRoom {
             winner: null,
             powerupsSpawned: 0,
             lastPowerupSpawn: 0,
+            railgunLaser: null, // {startX, startY, angle, length, time}
             zone: {
                 x: 0,
                 y: 0,
@@ -51,17 +52,19 @@ class GameRoom {
             }
         };
 
-        // Better spawn positions for up to 4 players (far corners)
+        // Better spawn positions for up to 6 players (corners + sides)
         const potentialSpawns = [
             { x: 100, y: 100 },
             { x: 700, y: 100 },
             { x: 100, y: 500 },
-            { x: 700, y: 500 }
+            { x: 700, y: 500 },
+            { x: 400, y: 100 },
+            { x: 400, y: 500 }
         ];
 
         players.forEach((player, idx) => {
             // Find a spawn position that doesn't collide with walls
-            let spawn = potentialSpawns[idx % 4];
+            let spawn = potentialSpawns[idx % 6];
             for (let attempt = 0; attempt < 20; attempt++) {
                 let collides = false;
                 const testPlayer = { x: spawn.x, y: spawn.y };
@@ -95,7 +98,11 @@ class GameRoom {
                 kills: 0,
                 wins: 0,
                 lastShot: 0,
-                powerup: null // Various powerup types
+                powerup: null, // Various powerup types
+                railgunCharging: false, // For railgun powerup
+                railgunChargeStart: 0, // When charge started
+                blinkCooldown: 0, // Blink dash cooldown
+                bouncyBallUsed: false // One-time bouncy ball
             };
         });
 
@@ -348,6 +355,11 @@ class GameRoom {
             notif => (this.gameState.gameTime - notif.time) < 3
         );
 
+        // Clean up railgun laser after 0.2 seconds
+        if (this.gameState.railgunLaser && (this.gameState.gameTime - this.gameState.railgunLaser.time) > 0.2) {
+            this.gameState.railgunLaser = null;
+        }
+
         // Check for powerup expiration (5 seconds)
         Object.values(this.gameState.players).forEach(player => {
             if (player.powerup && player.powerupTime !== undefined) {
@@ -444,6 +456,7 @@ class GameRoom {
         let throughWalls = false;
         let bulletSpeed = 900;
         let bulletSize = 5;
+        let infiniteBounce = false;
 
         // Check for active powerup
         if (player.powerup) {
@@ -460,8 +473,15 @@ class GameRoom {
                 throughWalls = true;
                 bulletSpeed = 400; // Slower
                 bulletSize = 20; // HUGE cannonball
-            } else if (player.powerup === 'speed' || player.powerup === 'noclip' || player.powerup === 'gravity') {
-                // These powerups don't affect shooting
+            } else if (player.powerup === 'bouncyball' && !player.bouncyBallUsed) {
+                // One-time huge bouncy ball
+                player.bouncyBallUsed = true;
+                damage = 50;
+                bulletSpeed = 500;
+                bulletSize = 40; // HUGE ball
+                infiniteBounce = true;
+            } else if (player.powerup === 'speed' || player.powerup === 'noclip' || player.powerup === 'gravity' || player.powerup === 'railgun' || player.powerup === 'blink') {
+                // These powerups don't affect shooting (railgun uses separate fire function)
             }
         }
 
@@ -476,12 +496,105 @@ class GameRoom {
             vy: Math.sin(angle) * bulletSpeed,
             playerId: playerId,
             damage: damage,
-            ricochet: ricochet,
-            bounces: ricochet ? 3 : 0,
+            ricochet: ricochet || infiniteBounce,
+            bounces: infiniteBounce ? 999999 : (ricochet ? 3 : 0),
             throughWalls: throughWalls,
             size: bulletSize
         };
         this.gameState.bullets.push(bullet);
+    }
+
+    fireRailgun(playerId, angle) {
+        const player = this.gameState.players[playerId];
+        if (!player || player.health <= 0) return;
+        if (player.powerup !== 'railgun' || !player.railgunCharging) return;
+
+        const chargeTime = this.gameState.gameTime - player.railgunChargeStart;
+        if (chargeTime < 2) return; // Must charge for 2 seconds
+
+        player.railgunCharging = false;
+
+        // Hitscan raycast through entire map
+        const maxDist = 2000;
+        const dx = Math.cos(angle);
+        const dy = Math.sin(angle);
+
+        // Find first player hit
+        for (let playerId2 in this.gameState.players) {
+            if (playerId2 === playerId) continue;
+            const target = this.gameState.players[playerId2];
+            if (target.health <= 0) continue;
+
+            // Check if target is on the laser line
+            const toTargetX = target.x - player.x;
+            const toTargetY = target.y - player.y;
+            const dot = toTargetX * dx + toTargetY * dy;
+            if (dot < 0) continue; // Behind
+
+            const closestX = player.x + dx * dot;
+            const closestY = player.y + dy * dot;
+            const dist = Math.hypot(closestX - target.x, closestY - target.y);
+
+            if (dist < 20) { // Hit radius
+                target.health = 0; // Instant kill
+                player.kills++;
+                console.log(`💥 ${player.name} railgun killed ${target.name}!`);
+                break; // Only hit first target
+            }
+        }
+
+        // Add visual laser effect
+        this.gameState.railgunLaser = {
+            startX: player.x,
+            startY: player.y,
+            angle: angle,
+            length: maxDist,
+            time: this.gameState.gameTime
+        };
+    }
+
+    blinkDash(playerId, angle) {
+        const player = this.gameState.players[playerId];
+        if (!player || player.health <= 0) return;
+        if (player.powerup !== 'blink') return;
+
+        const now = this.gameState.gameTime;
+        const powerupTime = player.powerupTime || 0;
+        const powerupElapsed = now - powerupTime;
+
+        if (powerupElapsed >= 5) return; // Powerup expired
+
+        if (now - player.blinkCooldown < 0.5) return; // 0.5s cooldown between dashes
+
+        player.blinkCooldown = now;
+
+        // Dash 150 pixels in direction
+        const dashDist = 150;
+        const targetX = player.x + Math.cos(angle) * dashDist;
+        const targetY = player.y + Math.sin(angle) * dashDist;
+
+        // Check wall collision
+        let finalX = targetX;
+        let finalY = targetY;
+
+        for (let wall of this.gameState.walls) {
+            const closestX = Math.max(wall.x, Math.min(targetX, wall.x + wall.width));
+            const closestY = Math.max(wall.y, Math.min(targetY, wall.y + wall.height));
+            const dist = Math.hypot(targetX - closestX, targetY - closestY);
+
+            if (dist < 20) { // Collision
+                // Stop at wall
+                const toWallX = closestX - player.x;
+                const toWallY = closestY - player.y;
+                const wallDist = Math.hypot(toWallX, toWallY) - 20;
+                finalX = player.x + (toWallX / Math.hypot(toWallX, toWallY)) * wallDist;
+                finalY = player.y + (toWallY / Math.hypot(toWallX, toWallY)) * wallDist;
+                break;
+            }
+        }
+
+        player.x = finalX;
+        player.y = finalY;
     }
 }
 
@@ -559,6 +672,51 @@ wss.on('connection', (ws) => {
                 }
             }
 
+            if (data.type === 'railgun_charge_start') {
+                const room = Array.from(gameRooms.values()).find(r =>
+                    r.gameState.players[playerId]
+                );
+                if (room) {
+                    const player = room.gameState.players[playerId];
+                    if (player && player.powerup === 'railgun') {
+                        player.railgunCharging = true;
+                        player.railgunChargeStart = room.gameState.gameTime;
+                        player.vx = 0; // Stop movement
+                        player.vy = 0;
+                    }
+                }
+            }
+
+            if (data.type === 'railgun_charge_cancel') {
+                const room = Array.from(gameRooms.values()).find(r =>
+                    r.gameState.players[playerId]
+                );
+                if (room) {
+                    const player = room.gameState.players[playerId];
+                    if (player) {
+                        player.railgunCharging = false;
+                    }
+                }
+            }
+
+            if (data.type === 'railgun_fire') {
+                const room = Array.from(gameRooms.values()).find(r =>
+                    r.gameState.players[playerId]
+                );
+                if (room) {
+                    room.fireRailgun(playerId, data.angle);
+                }
+            }
+
+            if (data.type === 'blink_dash') {
+                const room = Array.from(gameRooms.values()).find(r =>
+                    r.gameState.players[playerId]
+                );
+                if (room) {
+                    room.blinkDash(playerId, data.angle);
+                }
+            }
+
         } catch (e) {
             console.error('Error processing message:', e);
         }
@@ -587,7 +745,7 @@ function broadcastLobbyUpdate() {
     const lobbyData = lobby ? {
         id: lobby.id,
         playerCount: lobby.players.length,
-        maxPlayers: 4,
+        maxPlayers: 6,
         players: lobby.players.map(p => {
             const stats = playerStats.get(p.name) || { kills: 0, wins: 0 };
             return {
@@ -663,7 +821,9 @@ function startGame(currentLobby) {
             walls: room.gameState.walls,
             zone: room.gameState.zone,
             powerups: room.gameState.powerups,
-            gameTime: room.gameState.gameTime
+            gameTime: room.gameState.gameTime,
+            powerupNotifications: room.gameState.powerupNotifications,
+            railgunLaser: room.gameState.railgunLaser
         };
 
         players.forEach(player => {

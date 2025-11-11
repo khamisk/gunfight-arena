@@ -117,6 +117,14 @@
             background-color: #2ecc71;
         }
 
+        .purple-color {
+            background-color: #9b59b6;
+        }
+
+        .orange-color {
+            background-color: #e67e22;
+        }
+
         .button-group {
             margin-bottom: 20px;
         }
@@ -209,6 +217,16 @@
 
         .player-card.green {
             background-color: #2ecc71;
+            color: white;
+        }
+
+        .player-card.purple {
+            background-color: #9b59b6;
+            color: white;
+        }
+
+        .player-card.orange {
+            background-color: #e67e22;
             color: white;
         }
 
@@ -319,6 +337,8 @@
                     <div class="color-option red-color" data-color="red"></div>
                     <div class="color-option yellow-color" data-color="yellow"></div>
                     <div class="color-option green-color" data-color="green"></div>
+                    <div class="color-option purple-color" data-color="purple"></div>
+                    <div class="color-option orange-color" data-color="orange"></div>
                 </div>
             </div>
 
@@ -404,8 +424,33 @@
             }, 500);
         }
 
+        let railgunCharging = false;
+
         window.addEventListener('keydown', (e) => {
             keys[e.key.toLowerCase()] = true;
+
+            // Railgun charging (hold mouse)
+            if (e.button === undefined && isMouseDown && ws && gameState) {
+                const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
+                if (ourPlayer && ourPlayer.powerup === 'railgun' && !railgunCharging) {
+                    railgunCharging = true;
+                    ws.send(JSON.stringify({
+                        type: 'railgun_charge_start'
+                    }));
+                }
+            }
+
+            // Blink dash with spacebar
+            if (e.key === ' ' && ws && gameState) {
+                e.preventDefault(); // Prevent page scroll
+                const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
+                if (ourPlayer && ourPlayer.powerup === 'blink') {
+                    ws.send(JSON.stringify({
+                        type: 'blink_dash',
+                        angle: mouseAngle
+                    }));
+                }
+            }
         });
 
         window.addEventListener('keyup', (e) => {
@@ -445,10 +490,35 @@
 
         canvas.addEventListener('mousedown', () => {
             isMouseDown = true;
+
+            // Start railgun charge if player has railgun
+            if (ws && gameState) {
+                const ourPlayer = Object.values(gameState.players).find(p => p.color === playerColor);
+                if (ourPlayer && ourPlayer.powerup === 'railgun' && !railgunCharging) {
+                    railgunCharging = true;
+                    ws.send(JSON.stringify({
+                        type: 'railgun_charge_start'
+                    }));
+                }
+            }
         });
 
         window.addEventListener('mouseup', () => {
             isMouseDown = false;
+
+            // Fire railgun if charging
+            if (railgunCharging && ws) {
+                railgunCharging = false;
+                ws.send(JSON.stringify({
+                    type: 'railgun_fire',
+                    angle: mouseAngle
+                }));
+            } else if (ws) {
+                // Cancel charge if released early
+                ws.send(JSON.stringify({
+                    type: 'railgun_charge_cancel'
+                }));
+            }
         });
 
         // Clicking still works for single shots
@@ -803,16 +873,48 @@
             gameState.bullets.forEach(bullet => {
                 // Different colors and sizes for different bullet types
                 const isCannon = bullet.throughWalls;
-                const bulletSize = isCannon ? (bullet.size || 20) : 5; // Only cannon bullets are large
+                const isBouncyBall = bullet.size >= 40;
+                const bulletSize = bullet.size || 5;
 
-                ctx.shadowBlur = isCannon ? 20 : 10;
-                ctx.shadowColor = isCannon ? '#ff6600' : '#ffff00';
-                ctx.fillStyle = isCannon ? '#ff6600' : '#ffff00';
+                if (isBouncyBall) {
+                    ctx.shadowBlur = 30;
+                    ctx.shadowColor = '#ffff00';
+                    ctx.fillStyle = '#ffff00';
+                } else if (isCannon) {
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = '#ff6600';
+                    ctx.fillStyle = '#ff6600';
+                } else {
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#ffff00';
+                    ctx.fillStyle = '#ffff00';
+                }
+
                 ctx.beginPath();
                 ctx.arc(bullet.x * scaleX, bullet.y * scaleY, bulletSize, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.shadowBlur = 0;
             });
+
+            // Draw railgun laser
+            if (gameState.railgunLaser) {
+                const laser = gameState.railgunLaser;
+                const endX = laser.startX + Math.cos(laser.angle) * laser.length;
+                const endY = laser.startY + Math.sin(laser.angle) * laser.length;
+
+                // Bright red laser beam
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 4;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ff0000';
+
+                ctx.beginPath();
+                ctx.moveTo(laser.startX * scaleX, laser.startY * scaleY);
+                ctx.lineTo(endX * scaleX, endY * scaleY);
+                ctx.stroke();
+
+                ctx.shadowBlur = 0;
+            }
 
             Object.values(gameState.players).forEach(player => {
                 if (player.health <= 0) {
@@ -863,6 +965,56 @@
                 const healthPercent = Math.max(0, player.health) / 100;
                 ctx.fillStyle = player.health > 50 ? '#2ecc71' : player.health > 25 ? '#f39c12' : '#e74c3c';
                 ctx.fillRect((player.x - 15) * scaleX, (player.y - 30) * scaleY, 30 * healthPercent * scaleX, 5 * scaleY);
+
+                // Railgun charging indicator
+                if (player.railgunCharging) {
+                    const chargeTime = gameState.gameTime - player.railgunChargeStart;
+                    const chargePercent = Math.min(chargeTime / 2, 1); // 2 seconds to full charge
+
+                    // Charging bar
+                    ctx.fillStyle = '#222';
+                    ctx.fillRect((player.x - 20) * scaleX, (player.y - 40) * scaleY, 40 * scaleX, 6 * scaleY);
+
+                    ctx.fillStyle = chargePercent >= 1 ? '#00ff00' : '#ff0000';
+                    ctx.fillRect((player.x - 20) * scaleX, (player.y - 40) * scaleY, 40 * chargePercent * scaleX, 6 * scaleY);
+
+                    // Text
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(chargePercent >= 1 ? 'READY!' : 'CHARGING...', player.x * scaleX, (player.y - 45) * scaleY);
+                }
+
+                // Blink dash indicator
+                if (player.powerup === 'blink' && player.health > 0) {
+                    const now = gameState.gameTime;
+                    const powerupTime = player.powerupTime || 0;
+                    const powerupElapsed = now - powerupTime;
+
+                    if (powerupElapsed < 5) {
+                        const dashCooldown = now - (player.blinkCooldown || 0);
+                        const canDash = dashCooldown >= 0.5;
+
+                        ctx.fillStyle = canDash ? '#00ffff' : '#666';
+                        ctx.font = 'bold 10px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.strokeStyle = '#000';
+                        ctx.lineWidth = 2;
+                        ctx.strokeText('SPACE TO DASH', player.x * scaleX, (player.y - 40) * scaleY);
+                        ctx.fillText('SPACE TO DASH', player.x * scaleX, (player.y - 40) * scaleY);
+                    }
+                }
+
+                // Bouncy ball indicator
+                if (player.powerup === 'bouncyball' && !player.bouncyBallUsed && player.health > 0) {
+                    ctx.fillStyle = '#ffff00';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 2;
+                    ctx.strokeText('BOUNCY BALL READY', player.x * scaleX, (player.y - 40) * scaleY);
+                    ctx.fillText('BOUNCY BALL READY', player.x * scaleX, (player.y - 40) * scaleY);
+                }
             });
 
             updatePlayersList();
