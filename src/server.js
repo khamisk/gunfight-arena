@@ -1040,37 +1040,20 @@ wss.on('connection', (ws) => {
                 if (room) {
                     console.log(`� Admin: Force resetting game!`);
 
-                    // Force end current game by clearing game loop
-                    if (room.gameLoop) {
-                        clearInterval(room.gameLoop);
+                    // Clear game timeout to prevent double-ending
+                    if (room.gameTimeout) {
+                        clearTimeout(room.gameTimeout);
                     }
 
-                    // Delete the game room
-                    gameRooms.delete(room.roomId);
+                    // Use the proper endGame function which handles everything correctly
+                    const players = room.players || Object.values(room.gameState.players).map(p => ({
+                        id: p.id,
+                        name: p.name
+                    }));
 
-                    // Get the lobby
-                    const lobby = lobbies.get(room.roomId);
-                    if (lobby) {
-                        // Reset lobby to waiting state
-                        lobby.gameActive = false;
+                    endGame(room, players, room.gameLoop);
 
-                        // Notify all players to return to lobby
-                        lobby.players.forEach(player => {
-                            const conn = playerConnections.get(player.id);
-                            if (conn && conn.ws && conn.ws.readyState === WebSocket.OPEN) {
-                                conn.ws.send(JSON.stringify({
-                                    type: 'game_ended',
-                                    winner: null,
-                                    resetByAdmin: true
-                                }));
-                            }
-                        });
-
-                        broadcastToLobby(room.roomId);
-                        broadcastLobbyList();
-                    }
-
-                    console.log(`✅ Game forcefully reset by admin`);
+                    console.log(`✅ Game forcefully reset by admin - players returned to lobby`);
                 }
             }
 
@@ -1148,7 +1131,7 @@ function broadcastLobbyList() {
                 skippedCount++;
                 return;
             }
-            
+
             try {
                 client.send(message);
                 sentCount++;
@@ -1259,7 +1242,7 @@ function broadcastToLobby(lobbyId) {
 
         // Log loop health every 5 seconds
         if (now - lastLoopLog > 5000) {
-            console.log(`🔄 Game loop health: ${loopIterations} iterations in 5s, avg: ${(5000/loopIterations).toFixed(1)}ms/frame`);
+            console.log(`🔄 Game loop health: ${loopIterations} iterations in 5s, avg: ${(5000 / loopIterations).toFixed(1)}ms/frame`);
             loopIterations = 0;
             lastLoopLog = now;
         }
@@ -1320,13 +1303,15 @@ function broadcastToLobby(lobbyId) {
         }
     }, 1000 / 60);
 
-    // Store game loop reference in room for admin reset
+    // Store game loop and timeout references in room for admin reset
     room.gameLoop = gameLoop;
-
-    setTimeout(() => {
+    room.gameTimeout = setTimeout(() => {
         console.log(`🏁 GAME ENDED - Time expired`);
         endGame(room, players, gameLoop);
     }, 120000);
+
+    // Store players reference for admin reset
+    room.players = players;
 }
 
 function endGame(room, players, gameLoop) {
