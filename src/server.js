@@ -517,7 +517,7 @@ class GameRoom {
                 // One-time huge bouncy ball
                 player.bouncyBallUsed = true;
                 damage = 50;
-                bulletSpeed = 500;
+                bulletSpeed = 200; // Much slower - dodgeable
                 bulletSize = 40; // HUGE ball
                 infiniteBounce = true;
             } else if (player.powerup === 'railgun') {
