@@ -206,251 +206,296 @@ class GameRoom {
     }
 
     update(deltaTime) {
-        const mapWidth = 800;
-        const mapHeight = 600;
+        // Validate deltaTime to prevent infinite loops or NaN propagation
+        if (typeof deltaTime !== 'number' || isNaN(deltaTime) || !isFinite(deltaTime) || deltaTime <= 0 || deltaTime > 1) {
+            console.warn(`⚠️ Invalid deltaTime: ${deltaTime}, skipping update`);
+            return;
+        }
 
-        Object.values(this.gameState.players).forEach(player => {
-            if (player.health <= 0) return;
+        try {
+            const mapWidth = 800;
+            const mapHeight = 600;
 
-            // Check if any player has active gravity powerup
+            // Check once for gravity player (optimization - moved outside player loop)
             const gravityPlayer = Object.values(this.gameState.players).find(p =>
                 p.powerup === 'gravity' && p.powerupTime !== undefined &&
                 (this.gameState.gameTime - p.powerupTime) < 5
             );
 
-            // Apply gravity effect to all players except the one with the powerup
-            if (gravityPlayer && player.id !== gravityPlayer.id) {
-                // Pull player downwards (override their velocity)
-                player.vy = 300; // Strong downward force
-            }
-
-            // Store old position
-            const oldX = player.x;
-            const oldY = player.y;
-
-            // Check if player has noclip
-            const hasNoclip = player.powerup === 'noclip' && player.powerupTime !== undefined &&
-                (this.gameState.gameTime - player.powerupTime) < 5;
-
-            // Try moving X
-            player.x += player.vx * deltaTime;
-            if (!hasNoclip) {
-                let xCollision = false;
-                this.gameState.walls.forEach(wall => {
-                    if (this.isCollidingWithWall(player, wall)) {
-                        xCollision = true;
-                    }
-                });
-                if (xCollision) player.x = oldX;
-            }
-
-            // Try moving Y
-            player.y += player.vy * deltaTime;
-            if (!hasNoclip) {
-                let yCollision = false;
-                this.gameState.walls.forEach(wall => {
-                    if (this.isCollidingWithWall(player, wall)) {
-                        yCollision = true;
-                    }
-                });
-                if (yCollision) player.y = oldY;
-            }
-
-            // Clamp to map bounds (unless noclip is active)
-            if (!hasNoclip) {
-                player.x = Math.max(20, Math.min(mapWidth - 20, player.x));
-                player.y = Math.max(20, Math.min(mapHeight - 20, player.y));
-            } else {
-                // With noclip, allow movement outside but keep somewhat reasonable bounds
-                player.x = Math.max(-100, Math.min(mapWidth + 100, player.x));
-                player.y = Math.max(-100, Math.min(mapHeight + 100, player.y));
-            }
-
-            // Check powerup collection
-            this.gameState.powerups = this.gameState.powerups.filter(powerup => {
-                const dx = player.x - powerup.x;
-                const dy = player.y - powerup.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < powerup.radius + 5) {
-                    // Player collected powerup
-                    player.powerup = powerup.type;
-                    player.powerupTime = this.gameState.gameTime;
-
-                    // Add notification for all players to see
-                    this.gameState.powerupNotifications.push({
-                        playerName: player.name,
-                        powerupType: powerup.type,
-                        time: this.gameState.gameTime
-                    });
-
-                    console.log(`💊 ${player.name} collected ${powerup.type} powerup!`);
-                    return false; // Remove powerup
-                }
-                return true;
-            });
-        });
-
-        this.gameState.bullets = this.gameState.bullets.filter(bullet => {
-            bullet.x += bullet.vx * deltaTime;
-            bullet.y += bullet.vy * deltaTime;
-
-            // Bounce off map edges for ricochet bullets, remove others
-            if (bullet.x < 0 || bullet.x > mapWidth || bullet.y < 0 || bullet.y > mapHeight) {
-                if (bullet.ricochet && bullet.bounces > 0) {
-                    // Bounce off edges
-                    if (bullet.x < 0 || bullet.x > mapWidth) {
-                        bullet.vx = -bullet.vx;
-                        bullet.x = Math.max(0, Math.min(mapWidth, bullet.x));
-                    }
-                    if (bullet.y < 0 || bullet.y > mapHeight) {
-                        bullet.vy = -bullet.vy;
-                        bullet.y = Math.max(0, Math.min(mapHeight, bullet.y));
-                    }
-                    bullet.bounces--;
-                } else {
-                    return false;
-                }
-            }
-
-            // Only check wall collisions if bullet doesn't go through walls
-            if (!bullet.throughWalls) {
-                for (let wall of this.gameState.walls) {
-                    if (this.bulletCollidesWithWall(bullet, wall)) {
-                        if (bullet.ricochet && bullet.bounces > 0) {
-                            // Calculate bounce
-                            const centerX = wall.x + wall.width / 2;
-                            const centerY = wall.y + wall.height / 2;
-                            const hitFromSide = Math.abs(bullet.x - centerX) / wall.width > Math.abs(bullet.y - centerY) / wall.height;
-
-                            if (hitFromSide) {
-                                bullet.vx = -bullet.vx; // Bounce horizontally
-                            } else {
-                                bullet.vy = -bullet.vy; // Bounce vertically
-                            }
-
-                            bullet.bounces--;
-                            // Move bullet away from wall to prevent re-collision
-                            bullet.x += bullet.vx * deltaTime * 2;
-                            bullet.y += bullet.vy * deltaTime * 2;
-                        } else {
-                            return false;
-                        }
-                    }
-                }
-            }
-
-            for (let playerId in this.gameState.players) {
-                const player = this.gameState.players[playerId];
-
-                // Huge bouncy ball (infiniteBounce) can damage the shooter too, but with 1 second immunity
-                let canHit;
-                if (bullet.bounces === 999999) {
-                    // Bouncy ball - check immunity period
-                    const immunityTime = bullet.spawnTime ? (this.gameState.gameTime - bullet.spawnTime) : 999;
-                    const isShooter = player.id === bullet.playerId;
-                    canHit = player.health > 0 && (!isShooter || immunityTime >= 1); // 1 second immunity for shooter
-                } else {
-                    // Normal bullets - can't hit shooter
-                    canHit = player.id !== bullet.playerId && player.health > 0;
-                }
-
-                if (canHit) {
-                    if (this.bulletCollidesWithPlayer(bullet, player)) {
-                        player.health -= bullet.damage; // Use bullet's damage value
-                        if (player.health <= 0) {
-                            const shooter = this.gameState.players[bullet.playerId];
-                            if (shooter) {
-                                shooter.kills = (shooter.kills || 0) + 1;
-                            }
-                        }
-                        // Huge bouncy ball doesn't get removed on hit, keeps bouncing forever
-                        return bullet.bounces !== 999999 ? false : true;
-                    }
-                }
-            }
-
-            return true;
-        });
-
-        this.gameState.gameTime += deltaTime;
-
-        // Clean up old notifications (remove after 3 seconds)
-        this.gameState.powerupNotifications = this.gameState.powerupNotifications.filter(
-            notif => (this.gameState.gameTime - notif.time) < 3
-        );
-
-        // Clean up railgun laser after 0.2 seconds
-        if (this.gameState.railgunLaser && (this.gameState.gameTime - this.gameState.railgunLaser.time) > 0.2) {
-            this.gameState.railgunLaser = null;
-        }
-
-        // Check for powerup expiration (5 seconds)
-        Object.values(this.gameState.players).forEach(player => {
-            if (player.powerup && player.powerupTime !== undefined) {
-                const elapsed = this.gameState.gameTime - player.powerupTime;
-                if (elapsed >= 5) {
-                    console.log(`⏰ ${player.name}'s ${player.powerup} powerup expired!`);
-                    player.powerup = null;
-                    player.powerupTime = undefined;
-                }
-            }
-
-            // Clean up chat messages after 5 seconds
-            if (player.chatMessage && (this.gameState.gameTime - player.chatTime) > 5) {
-                player.chatMessage = null;
-            }
-
-            // Clean up emojis after 3 seconds
-            if (player.emoji && (this.gameState.gameTime - player.emojiTime) > 3) {
-                player.emoji = null;
-            }
-        });
-
-        // Spawn powerups at specific times: 5 seconds and 20 seconds
-        if (this.gameState.powerupsSpawned === 0 && this.gameState.gameTime >= 5) {
-            this.spawnPowerup();
-            this.gameState.powerupsSpawned++;
-            console.log('🎁 First powerup spawned at 5 seconds!');
-        } else if (this.gameState.powerupsSpawned === 1 && this.gameState.gameTime >= 20) {
-            this.spawnPowerup();
-            this.gameState.powerupsSpawned++;
-            console.log('🎁 Second powerup spawned at 20 seconds!');
-        }
-
-        // Activate zone after 10 seconds (give players more time)
-        if (!this.gameState.zone.active && this.gameState.gameTime >= 10) {
-            this.gameState.zone.active = true;
-            this.gameState.zone.startTime = this.gameState.gameTime;
-        }
-
-        // Update zone - shrink over 50 seconds to fully closed (slower)
-        if (this.gameState.zone.active) {
-            const zoneDuration = 50;
-            const elapsed = this.gameState.gameTime - this.gameState.zone.startTime;
-            const progress = Math.min(elapsed / zoneDuration, 1);
-
-            // Shrink to center (400, 300) - final size 0x0 (fully closed)
-            const targetX = 400;
-            const targetY = 300;
-
-            this.gameState.zone.x = targetX * progress;
-            this.gameState.zone.y = targetY * progress;
-            this.gameState.zone.width = 800 * (1 - progress);
-            this.gameState.zone.height = 600 * (1 - progress);
-
-            // Damage players outside zone
             Object.values(this.gameState.players).forEach(player => {
                 if (player.health <= 0) return;
 
-                const inZone = player.x >= this.gameState.zone.x &&
-                    player.x <= this.gameState.zone.x + this.gameState.zone.width &&
-                    player.y >= this.gameState.zone.y &&
-                    player.y <= this.gameState.zone.y + this.gameState.zone.height;
-
-                if (!inZone) {
-                    player.health -= 10 * deltaTime; // 10 damage per second
+                // Apply gravity effect to all players except the one with the powerup
+                if (gravityPlayer && player.id !== gravityPlayer.id) {
+                    // Pull player downwards (override their velocity)
+                    player.vy = 300; // Strong downward force
                 }
+
+                // Store old position
+                const oldX = player.x;
+                const oldY = player.y;
+
+                // Check if player has noclip
+                const hasNoclip = player.powerup === 'noclip' && player.powerupTime !== undefined &&
+                    (this.gameState.gameTime - player.powerupTime) < 5;
+
+                // Try moving X
+                player.x += player.vx * deltaTime;
+                if (!hasNoclip) {
+                    let xCollision = false;
+                    this.gameState.walls.forEach(wall => {
+                        if (this.isCollidingWithWall(player, wall)) {
+                            xCollision = true;
+                        }
+                    });
+                    if (xCollision) player.x = oldX;
+                }
+
+                // Try moving Y
+                player.y += player.vy * deltaTime;
+                if (!hasNoclip) {
+                    let yCollision = false;
+                    this.gameState.walls.forEach(wall => {
+                        if (this.isCollidingWithWall(player, wall)) {
+                            yCollision = true;
+                        }
+                    });
+                    if (yCollision) player.y = oldY;
+                }
+
+                // Clamp to map bounds (unless noclip is active)
+                if (!hasNoclip) {
+                    player.x = Math.max(20, Math.min(mapWidth - 20, player.x));
+                    player.y = Math.max(20, Math.min(mapHeight - 20, player.y));
+                } else {
+                    // With noclip, allow movement outside but keep somewhat reasonable bounds
+                    player.x = Math.max(-100, Math.min(mapWidth + 100, player.x));
+                    player.y = Math.max(-100, Math.min(mapHeight + 100, player.y));
+                }
+
+                // Validate player position - prevent NaN propagation
+                if (isNaN(player.x) || isNaN(player.y) || !isFinite(player.x) || !isFinite(player.y)) {
+                    console.error(`❌ CRITICAL: Player ${player.name} has invalid position! x:${player.x}, y:${player.y}, vx:${player.vx}, vy:${player.vy}`);
+                    // Reset to safe position
+                    player.x = 400;
+                    player.y = 300;
+                    player.vx = 0;
+                    player.vy = 0;
+                }
+
+                // Validate player velocity
+                if (isNaN(player.vx) || isNaN(player.vy) || !isFinite(player.vx) || !isFinite(player.vy)) {
+                    console.error(`❌ CRITICAL: Player ${player.name} has invalid velocity! vx:${player.vx}, vy:${player.vy}`);
+                    player.vx = 0;
+                    player.vy = 0;
+                }
+
+                // Check powerup collection
+                this.gameState.powerups = this.gameState.powerups.filter(powerup => {
+                    const dx = player.x - powerup.x;
+                    const dy = player.y - powerup.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < powerup.radius + 5) {
+                        // Player collected powerup
+                        player.powerup = powerup.type;
+                        player.powerupTime = this.gameState.gameTime;
+
+                        // Add notification for all players to see
+                        this.gameState.powerupNotifications.push({
+                            playerName: player.name,
+                            powerupType: powerup.type,
+                            time: this.gameState.gameTime
+                        });
+
+                        console.log(`💊 ${player.name} collected ${powerup.type} powerup!`);
+                        return false; // Remove powerup
+                    }
+                    return true;
+                });
+            });
+
+            this.gameState.bullets = this.gameState.bullets.filter(bullet => {
+                bullet.x += bullet.vx * deltaTime;
+                bullet.y += bullet.vy * deltaTime;
+
+                // Validate bullet position - prevent NaN propagation
+                if (isNaN(bullet.x) || isNaN(bullet.y) || !isFinite(bullet.x) || !isFinite(bullet.y)) {
+                    console.error(`❌ CRITICAL: Bullet has invalid position! x:${bullet.x}, y:${bullet.y}, vx:${bullet.vx}, vy:${bullet.vy}`);
+                    return false; // Remove invalid bullet
+                }
+
+                // Validate bullet velocity
+                if (isNaN(bullet.vx) || isNaN(bullet.vy) || !isFinite(bullet.vx) || !isFinite(bullet.vy)) {
+                    console.error(`❌ CRITICAL: Bullet has invalid velocity! vx:${bullet.vx}, vy:${bullet.vy}`);
+                    return false; // Remove invalid bullet
+                }
+
+                // Bounce off map edges for ricochet bullets, remove others
+                if (bullet.x < 0 || bullet.x > mapWidth || bullet.y < 0 || bullet.y > mapHeight) {
+                    if (bullet.ricochet && bullet.bounces > 0) {
+                        // Bounce off edges
+                        if (bullet.x < 0 || bullet.x > mapWidth) {
+                            bullet.vx = -bullet.vx;
+                            bullet.x = Math.max(0, Math.min(mapWidth, bullet.x));
+                        }
+                        if (bullet.y < 0 || bullet.y > mapHeight) {
+                            bullet.vy = -bullet.vy;
+                            bullet.y = Math.max(0, Math.min(mapHeight, bullet.y));
+                        }
+                        bullet.bounces--;
+                    } else {
+                        return false;
+                    }
+                }
+
+                // Only check wall collisions if bullet doesn't go through walls
+                if (!bullet.throughWalls) {
+                    for (let wall of this.gameState.walls) {
+                        if (this.bulletCollidesWithWall(bullet, wall)) {
+                            if (bullet.ricochet && bullet.bounces > 0) {
+                                // Calculate bounce
+                                const centerX = wall.x + wall.width / 2;
+                                const centerY = wall.y + wall.height / 2;
+                                const hitFromSide = Math.abs(bullet.x - centerX) / wall.width > Math.abs(bullet.y - centerY) / wall.height;
+
+                                if (hitFromSide) {
+                                    bullet.vx = -bullet.vx; // Bounce horizontally
+                                } else {
+                                    bullet.vy = -bullet.vy; // Bounce vertically
+                                }
+
+                                bullet.bounces--;
+                                // Move bullet away from wall to prevent re-collision
+                                bullet.x += bullet.vx * deltaTime * 2;
+                                bullet.y += bullet.vy * deltaTime * 2;
+                            } else {
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                for (let playerId in this.gameState.players) {
+                    const player = this.gameState.players[playerId];
+
+                    // Huge bouncy ball (infiniteBounce) can damage the shooter too, but with 1 second immunity
+                    let canHit;
+                    if (bullet.bounces === 999999) {
+                        // Bouncy ball - check immunity period
+                        const immunityTime = bullet.spawnTime ? (this.gameState.gameTime - bullet.spawnTime) : 999;
+                        const isShooter = player.id === bullet.playerId;
+                        canHit = player.health > 0 && (!isShooter || immunityTime >= 1); // 1 second immunity for shooter
+                    } else {
+                        // Normal bullets - can't hit shooter
+                        canHit = player.id !== bullet.playerId && player.health > 0;
+                    }
+
+                    if (canHit) {
+                        if (this.bulletCollidesWithPlayer(bullet, player)) {
+                            player.health -= bullet.damage; // Use bullet's damage value
+                            if (player.health <= 0) {
+                                const shooter = this.gameState.players[bullet.playerId];
+                                if (shooter) {
+                                    shooter.kills = (shooter.kills || 0) + 1;
+                                }
+                            }
+                            // Huge bouncy ball doesn't get removed on hit, keeps bouncing forever
+                            return bullet.bounces !== 999999 ? false : true;
+                        }
+                    }
+                }
+
+                return true;
+            });
+
+            this.gameState.gameTime += deltaTime;
+
+            // Clean up old notifications (remove after 3 seconds)
+            this.gameState.powerupNotifications = this.gameState.powerupNotifications.filter(
+                notif => (this.gameState.gameTime - notif.time) < 3
+            );
+
+            // Clean up railgun laser after 0.2 seconds
+            if (this.gameState.railgunLaser && (this.gameState.gameTime - this.gameState.railgunLaser.time) > 0.2) {
+                this.gameState.railgunLaser = null;
+            }
+
+            // Check for powerup expiration (5 seconds)
+            Object.values(this.gameState.players).forEach(player => {
+                if (player.powerup && player.powerupTime !== undefined) {
+                    const elapsed = this.gameState.gameTime - player.powerupTime;
+                    if (elapsed >= 5) {
+                        console.log(`⏰ ${player.name}'s ${player.powerup} powerup expired!`);
+                        player.powerup = null;
+                        player.powerupTime = undefined;
+                    }
+                }
+
+                // Clean up chat messages after 5 seconds
+                if (player.chatMessage && (this.gameState.gameTime - player.chatTime) > 5) {
+                    player.chatMessage = null;
+                }
+
+                // Clean up emojis after 3 seconds
+                if (player.emoji && (this.gameState.gameTime - player.emojiTime) > 3) {
+                    player.emoji = null;
+                }
+            });
+
+            // Spawn powerups at specific times: 5 seconds and 20 seconds
+            if (this.gameState.powerupsSpawned === 0 && this.gameState.gameTime >= 5) {
+                this.spawnPowerup();
+                this.gameState.powerupsSpawned++;
+                console.log('🎁 First powerup spawned at 5 seconds!');
+            } else if (this.gameState.powerupsSpawned === 1 && this.gameState.gameTime >= 20) {
+                this.spawnPowerup();
+                this.gameState.powerupsSpawned++;
+                console.log('🎁 Second powerup spawned at 20 seconds!');
+            }
+
+            // Activate zone after 10 seconds (give players more time)
+            if (!this.gameState.zone.active && this.gameState.gameTime >= 10) {
+                this.gameState.zone.active = true;
+                this.gameState.zone.startTime = this.gameState.gameTime;
+            }
+
+            // Update zone - shrink over 50 seconds to fully closed (slower)
+            if (this.gameState.zone.active) {
+                const zoneDuration = 50;
+                const elapsed = this.gameState.gameTime - this.gameState.zone.startTime;
+                const progress = Math.min(elapsed / zoneDuration, 1);
+
+                // Shrink to center (400, 300) - final size 0x0 (fully closed)
+                const targetX = 400;
+                const targetY = 300;
+
+                this.gameState.zone.x = targetX * progress;
+                this.gameState.zone.y = targetY * progress;
+                this.gameState.zone.width = 800 * (1 - progress);
+                this.gameState.zone.height = 600 * (1 - progress);
+
+                // Damage players outside zone
+                Object.values(this.gameState.players).forEach(player => {
+                    if (player.health <= 0) return;
+
+                    const inZone = player.x >= this.gameState.zone.x &&
+                        player.x <= this.gameState.zone.x + this.gameState.zone.width &&
+                        player.y >= this.gameState.zone.y &&
+                        player.y <= this.gameState.zone.y + this.gameState.zone.height;
+
+                    if (!inZone) {
+                        player.health -= 10 * deltaTime; // 10 damage per second
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('❌ ERROR in update() - Game may freeze:', error);
+            console.error('Game State:', {
+                gameTime: this.gameState.gameTime,
+                playerCount: Object.keys(this.gameState.players).length,
+                bulletCount: this.gameState.bullets.length,
+                deltaTime: deltaTime
             });
         }
     }
@@ -1010,49 +1055,98 @@ wss.on('connection', (ws) => {
     });
 });
 
-function broadcastLobbyList() {
-    const lobbiesList = Array.from(lobbies.values()).map(lobby => ({
-        id: lobby.id,
-        name: lobby.name,
-        playerCount: lobby.players.length,
-        maxPlayers: lobby.maxPlayers,
-        hasPassword: !!lobby.password,
-        hostName: lobby.players.find(p => p.id === lobby.hostId)?.name || 'Host'
-    }));
+// Throttle lobby list broadcasts to prevent event loop blocking
+let lastLobbyBroadcast = 0;
+const LOBBY_BROADCAST_THROTTLE = 100; // Max once per 100ms
 
-    // Only send to clients not currently in a game
-    wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            try {
-                client.send(JSON.stringify({
-                    type: 'lobbies_list',
-                    lobbies: lobbiesList
-                }));
-            } catch (e) {
-                console.error('Error broadcasting lobby list:', e);
+function broadcastLobbyList() {
+    const now = Date.now();
+
+    // Throttle broadcasts - if called too frequently, skip
+    if (now - lastLobbyBroadcast < LOBBY_BROADCAST_THROTTLE) {
+        return;
+    }
+    lastLobbyBroadcast = now;
+
+    try {
+        const lobbiesList = Array.from(lobbies.values()).map(lobby => ({
+            id: lobby.id,
+            name: lobby.name,
+            playerCount: lobby.players.length,
+            maxPlayers: lobby.maxPlayers,
+            hasPassword: !!lobby.password,
+            hostName: lobby.players.find(p => p.id === lobby.hostId)?.name || 'Host'
+        }));
+
+        const message = JSON.stringify({
+            type: 'lobbies_list',
+            lobbies: lobbiesList
+        });
+
+        let sentCount = 0;
+        let errorCount = 0;
+
+        // Only send to clients not currently in a game
+        wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                try {
+                    client.send(message);
+                    sentCount++;
+                } catch (e) {
+                    errorCount++;
+                    console.error('Error sending to client:', e.message);
+                }
             }
+        });
+
+        if (errorCount > 0) {
+            console.warn(`⚠️ Lobby broadcast: ${sentCount} sent, ${errorCount} errors`);
         }
-    });
+    } catch (error) {
+        console.error('❌ CRITICAL ERROR in broadcastLobbyList:', error);
+    }
 }
 
 function broadcastToLobby(lobbyId) {
-    const lobby = lobbies.get(lobbyId);
-    if (!lobby) return;
+    try {
+        const lobby = lobbies.get(lobbyId);
+        if (!lobby) return;
 
-    console.log(`📢 Broadcasting lobby update: ${lobby.name} (${lobby.players.length} players)`);
+        console.log(`📢 Broadcasting lobby update: ${lobby.name} (${lobby.players.length} players)`);
 
-    lobby.players.forEach(player => {
-        const connection = playerConnections.get(player.id);
-        if (connection && connection.ws.readyState === WebSocket.OPEN) {
-            const message = {
-                type: 'lobby_update',
-                lobby: lobby,
-                isHost: lobby.hostId === player.id
-            };
-            connection.ws.send(JSON.stringify(message));
-            console.log(`  → Sent to ${player.name} (isHost: ${lobby.hostId === player.id})`);
+        const message = JSON.stringify({
+            type: 'lobby_update',
+            lobby: lobby
+        });
+
+        let sentCount = 0;
+        let errorCount = 0;
+
+        lobby.players.forEach(player => {
+            const connection = playerConnections.get(player.id);
+            if (connection && connection.ws.readyState === WebSocket.OPEN) {
+                try {
+                    const playerMessage = JSON.stringify({
+                        type: 'lobby_update',
+                        lobby: lobby,
+                        isHost: lobby.hostId === player.id
+                    });
+                    connection.ws.send(playerMessage);
+                    sentCount++;
+                    console.log(`  → Sent to ${player.name} (isHost: ${lobby.hostId === player.id})`);
+                } catch (e) {
+                    errorCount++;
+                    console.error(`Error sending to ${player.name}:`, e.message);
+                }
+            }
+        });
+
+        if (errorCount > 0) {
+            console.warn(`⚠️ Lobby update: ${sentCount} sent, ${errorCount} errors`);
         }
-    });
+    } catch (error) {
+        console.error('❌ CRITICAL ERROR in broadcastToLobby:', error);
+    }
 } function startGame(currentLobby) {
     console.log(`🎮 GAME STARTING with ${currentLobby.players.length} players`);
     const room = new GameRoom(currentLobby.id, currentLobby.players);
@@ -1081,10 +1175,27 @@ function broadcastToLobby(lobbyId) {
         }
     });
 
+    let loopIterations = 0;
+    let lastLoopLog = Date.now();
+
     const gameLoop = setInterval(() => {
         const now = Date.now();
         const deltaTime = (now - lastUpdateTime) / 1000;
         lastUpdateTime = now;
+
+        loopIterations++;
+
+        // Log loop health every 5 seconds
+        if (now - lastLoopLog > 5000) {
+            console.log(`🔄 Game loop health check: ${loopIterations} iterations in 5s, deltaTime: ${deltaTime.toFixed(3)}s`);
+            loopIterations = 0;
+            lastLoopLog = now;
+        }
+
+        // Detect abnormal deltaTime (could indicate freeze recovery)
+        if (deltaTime > 0.5) {
+            console.warn(`⚠️ Abnormal deltaTime detected: ${deltaTime}s - possible freeze or lag spike`);
+        }
 
         room.update(deltaTime);
 
