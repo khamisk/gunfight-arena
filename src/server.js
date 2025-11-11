@@ -100,8 +100,7 @@ class GameRoom {
             };
         });
 
-        // Spawn one powerup at start
-        this.spawnPowerup();
+        // Powerups will spawn at 5s and 20s (no initial spawn)
     }
 
     spawnPowerup() {
@@ -343,7 +342,9 @@ class GameRoom {
 
             for (let playerId in this.gameState.players) {
                 const player = this.gameState.players[playerId];
-                if (player.id !== bullet.playerId && player.health > 0) {
+                // Huge bouncy ball (infiniteBounce) can damage the shooter too
+                const canHit = bullet.bounces === 999999 ? player.health > 0 : (player.id !== bullet.playerId && player.health > 0);
+                if (canHit) {
                     if (this.bulletCollidesWithPlayer(bullet, player)) {
                         player.health -= bullet.damage; // Use bullet's damage value
                         if (player.health <= 0) {
@@ -352,7 +353,8 @@ class GameRoom {
                                 shooter.kills = (shooter.kills || 0) + 1;
                             }
                         }
-                        return false;
+                        // Huge bouncy ball doesn't get removed on hit, keeps bouncing forever
+                        return bullet.bounces !== 999999 ? false : true;
                     }
                 }
             }
@@ -394,16 +396,15 @@ class GameRoom {
             }
         });
 
-        // Random powerup spawning (max 2 during game, random intervals 10-30 seconds)
-        if (this.gameState.powerupsSpawned < 2 && this.gameState.powerups.length === 0) {
-            const timeSinceLastSpawn = this.gameState.gameTime - this.gameState.lastPowerupSpawn;
-            const randomInterval = 10 + Math.random() * 20; // 10-30 seconds
-
-            if (timeSinceLastSpawn >= randomInterval) {
-                this.spawnPowerup();
-                this.gameState.powerupsSpawned++;
-                this.gameState.lastPowerupSpawn = this.gameState.gameTime;
-            }
+        // Spawn powerups at specific times: 5 seconds and 20 seconds
+        if (this.gameState.powerupsSpawned === 0 && this.gameState.gameTime >= 5) {
+            this.spawnPowerup();
+            this.gameState.powerupsSpawned++;
+            console.log('🎁 First powerup spawned at 5 seconds!');
+        } else if (this.gameState.powerupsSpawned === 1 && this.gameState.gameTime >= 20) {
+            this.spawnPowerup();
+            this.gameState.powerupsSpawned++;
+            console.log('🎁 Second powerup spawned at 20 seconds!');
         }
 
         // Activate zone after 10 seconds (give players more time)
