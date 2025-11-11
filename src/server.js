@@ -15,11 +15,6 @@ let gameRooms = new Map();
 let playerConnections = new Map(); // playerId -> {ws, playerInfo, currentLobby}
 let playerStats = new Map(); // Persistent stats: name -> {kills, wins}
 
-// Rate limiting to prevent message flooding
-const messageRateLimits = new Map(); // playerId -> {count, resetTime}
-const MAX_MESSAGES_PER_SECOND = 30;
-const RATE_LIMIT_WINDOW = 1000; // 1 second
-
 class GameRoom {
     constructor(roomId, players) {
         this.roomId = roomId;
@@ -211,8 +206,6 @@ class GameRoom {
     }
 
     update(deltaTime) {
-        const updateStartTime = Date.now();
-
         // Validate deltaTime to prevent infinite loops or NaN propagation
         if (typeof deltaTime !== 'number' || isNaN(deltaTime) || !isFinite(deltaTime) || deltaTime <= 0 || deltaTime > 1) {
             console.warn(`⚠️ Invalid deltaTime: ${deltaTime}, skipping update`);
@@ -250,13 +243,11 @@ class GameRoom {
                 player.x += player.vx * deltaTime;
                 if (!hasNoclip) {
                     let xCollision = false;
-                    // Use for loop with break for early exit (optimization)
-                    for (let i = 0; i < this.gameState.walls.length; i++) {
-                        if (this.isCollidingWithWall(player, this.gameState.walls[i])) {
+                    this.gameState.walls.forEach(wall => {
+                        if (this.isCollidingWithWall(player, wall)) {
                             xCollision = true;
-                            break; // Early exit
                         }
-                    }
+                    });
                     if (xCollision) player.x = oldX;
                 }
 
@@ -264,13 +255,11 @@ class GameRoom {
                 player.y += player.vy * deltaTime;
                 if (!hasNoclip) {
                     let yCollision = false;
-                    // Use for loop with break for early exit (optimization)
-                    for (let i = 0; i < this.gameState.walls.length; i++) {
-                        if (this.isCollidingWithWall(player, this.gameState.walls[i])) {
+                    this.gameState.walls.forEach(wall => {
+                        if (this.isCollidingWithWall(player, wall)) {
                             yCollision = true;
-                            break; // Early exit
                         }
-                    }
+                    });
                     if (yCollision) player.y = oldY;
                 }
 
@@ -325,13 +314,6 @@ class GameRoom {
                     return true;
                 });
             });
-
-            // Safety limit: Remove oldest bullets if too many exist (prevents memory leak/freeze)
-            const MAX_BULLETS = 500;
-            if (this.gameState.bullets.length > MAX_BULLETS) {
-                console.warn(`⚠️ Too many bullets (${this.gameState.bullets.length})! Removing oldest...`);
-                this.gameState.bullets = this.gameState.bullets.slice(-MAX_BULLETS);
-            }
 
             this.gameState.bullets = this.gameState.bullets.filter(bullet => {
                 bullet.x += bullet.vx * deltaTime;
@@ -507,20 +489,13 @@ class GameRoom {
                     }
                 });
             }
-
-            // Performance monitoring - warn if update takes too long
-            const updateDuration = Date.now() - updateStartTime;
-            if (updateDuration > 50) { // More than 50ms is concerning
-                console.warn(`⚠️ Slow update: ${updateDuration}ms (players: ${Object.keys(this.gameState.players).length}, bullets: ${this.gameState.bullets.length})`);
-            }
         } catch (error) {
             console.error('❌ ERROR in update() - Game may freeze:', error);
             console.error('Game State:', {
                 gameTime: this.gameState.gameTime,
                 playerCount: Object.keys(this.gameState.players).length,
                 bulletCount: this.gameState.bullets.length,
-                deltaTime: deltaTime,
-                updateDuration: Date.now() - updateStartTime
+                deltaTime: deltaTime
             });
         }
     }
@@ -714,22 +689,6 @@ wss.on('connection', (ws) => {
 
     ws.on('message', (message) => {
         try {
-            // Rate limiting check
-            const now = Date.now();
-            let rateLimit = messageRateLimits.get(playerId);
-
-            if (!rateLimit || now > rateLimit.resetTime) {
-                rateLimit = { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
-                messageRateLimits.set(playerId, rateLimit);
-            }
-
-            rateLimit.count++;
-
-            if (rateLimit.count > MAX_MESSAGES_PER_SECOND) {
-                console.warn(`⚠️ Rate limit exceeded for player ${playerId} (${playerInfo?.name || 'Unknown'})`);
-                return; // Drop the message
-            }
-
             const data = JSON.parse(message);
 
             // Get lobbies list
@@ -1106,22 +1065,8 @@ wss.on('connection', (ws) => {
         }
 
         playerConnections.delete(playerId);
-        messageRateLimits.delete(playerId);
     });
 });
-
-// Periodic cleanup of dead connections (every 30 seconds)
-setInterval(() => {
-    let closedCount = 0;
-    wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.CLOSED || client.readyState === WebSocket.CLOSING) {
-            closedCount++;
-        }
-    });
-    if (closedCount > 0) {
-        console.log(`🧹 Cleanup: ${closedCount} dead connections still in wss.clients`);
-    }
-}, 30000);
 
 // Throttle lobby list broadcasts to prevent event loop blocking
 let lastLobbyBroadcast = 0;
@@ -1245,8 +1190,6 @@ function broadcastToLobby(lobbyId) {
 
     let loopIterations = 0;
     let lastLoopLog = Date.now();
-    let updateInProgress = false;
-    let skippedFrames = 0;
 
     const gameLoop = setInterval(() => {
         const now = Date.now();
@@ -1257,9 +1200,8 @@ function broadcastToLobby(lobbyId) {
 
         // Log loop health every 5 seconds
         if (now - lastLoopLog > 5000) {
-            console.log(`🔄 Game loop health check: ${loopIterations} iterations in 5s, deltaTime: ${deltaTime.toFixed(3)}s, skipped: ${skippedFrames}`);
+            console.log(`🔄 Game loop health check: ${loopIterations} iterations in 5s, deltaTime: ${deltaTime.toFixed(3)}s`);
             loopIterations = 0;
-            skippedFrames = 0;
             lastLoopLog = now;
         }
 
@@ -1268,21 +1210,9 @@ function broadcastToLobby(lobbyId) {
             console.warn(`⚠️ Abnormal deltaTime detected: ${deltaTime}s - possible freeze or lag spike`);
         }
 
-        // Skip frame if previous update is still running (prevent pile-up)
-        if (updateInProgress) {
-            skippedFrames++;
-            console.warn(`⚠️ Update still in progress! Skipping frame ${skippedFrames}`);
-            return;
-        }
+        room.update(deltaTime);
 
-        updateInProgress = true;
-        try {
-            room.update(deltaTime);
-        } catch (error) {
-            console.error('❌ CRITICAL ERROR in game loop:', error);
-        } finally {
-            updateInProgress = false;
-        }        // Add persistent stats (wins) to player data
+        // Add persistent stats (wins) to player data
         const playersWithStats = {};
         Object.keys(room.gameState.players).forEach(playerId => {
             const player = room.gameState.players[playerId];
@@ -1304,8 +1234,6 @@ function broadcastToLobby(lobbyId) {
             railgunLaser: room.gameState.railgunLaser
         };
 
-        // Broadcast to players with error handling and send tracking
-        let sendErrors = 0;
         players.forEach(player => {
             const connection = playerConnections.get(player.id);
             if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
@@ -1315,15 +1243,10 @@ function broadcastToLobby(lobbyId) {
                         state: gameState
                     }));
                 } catch (e) {
-                    sendErrors++;
-                    console.error(`Error sending to player ${player.name}:`, e.message);
+                    console.error(`Error sending to player ${player.name}:`, e);
                 }
             }
         });
-
-        if (sendErrors > 0) {
-            console.warn(`⚠️ Game state broadcast: ${sendErrors} send errors out of ${players.length} players`);
-        }
 
         frameCount++;
         if (frameCount % 60 === 0) {
