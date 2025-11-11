@@ -295,8 +295,22 @@ class GameRoom {
             bullet.x += bullet.vx * deltaTime;
             bullet.y += bullet.vy * deltaTime;
 
+            // Bounce off map edges for ricochet bullets, remove others
             if (bullet.x < 0 || bullet.x > mapWidth || bullet.y < 0 || bullet.y > mapHeight) {
-                return false;
+                if (bullet.ricochet && bullet.bounces > 0) {
+                    // Bounce off edges
+                    if (bullet.x < 0 || bullet.x > mapWidth) {
+                        bullet.vx = -bullet.vx;
+                        bullet.x = Math.max(0, Math.min(mapWidth, bullet.x));
+                    }
+                    if (bullet.y < 0 || bullet.y > mapHeight) {
+                        bullet.vy = -bullet.vy;
+                        bullet.y = Math.max(0, Math.min(mapHeight, bullet.y));
+                    }
+                    bullet.bounces--;
+                } else {
+                    return false;
+                }
             }
 
             // Only check wall collisions if bullet doesn't go through walls

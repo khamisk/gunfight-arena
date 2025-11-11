@@ -86,12 +86,21 @@
 
         .input-group input {
             width: 300px;
-            padding: 10px;
-            font-size: 1em;
-            border: none;
-            border-radius: 5px;
-            background-color: #f0f0f0;
-            color: #000;
+            padding: 14px 18px;
+            font-size: 1.05em;
+            border: 2px solid #34495e;
+            border-radius: 8px;
+            background-color: rgba(255, 255, 255, 0.95);
+            color: #2c3e50;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 15px rgba(52, 152, 219, 0.3);
+            transform: scale(1.02);
         }
 
         .color-selector {
@@ -102,21 +111,25 @@
         }
 
         .color-option {
-            width: 50px;
-            height: 50px;
+            width: 55px;
+            height: 55px;
             border-radius: 50%;
             cursor: pointer;
-            border: 3px solid transparent;
+            border: 3px solid rgba(255, 255, 255, 0.3);
             transition: all 0.3s;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
         }
 
         .color-option:hover {
-            transform: scale(1.1);
+            transform: scale(1.15);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+            border-color: rgba(255, 255, 255, 0.6);
         }
 
         .color-option.selected {
             border-color: #fff;
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.9), 0 8px 20px rgba(0, 0, 0, 0.4);
+            transform: scale(1.1);
         }
 
         .blue-color {
@@ -176,24 +189,29 @@
         }
 
         button {
-            padding: 12px 30px;
+            padding: 14px 32px;
             font-size: 1.1em;
-            background-color: #2ecc71;
+            font-weight: 600;
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         button:hover {
-            background-color: #27ae60;
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4);
         }
 
         button:active {
             transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(46, 204, 113, 0.3);
         }
 
         .status {
@@ -218,13 +236,16 @@
 
         .game-ui {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            top: 15px;
+            left: 15px;
             color: white;
             font-size: 1.2em;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 15px;
-            border-radius: 5px;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.85) 0%, rgba(20, 20, 20, 0.75) 100%);
+            padding: 20px;
+            border-radius: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
         }
 
         #queuedPlayers {
@@ -277,33 +298,39 @@
         }
 
         .lobby-card {
-            background: rgba(52, 73, 94, 0.9);
+            background: linear-gradient(135deg, rgba(52, 73, 94, 0.95) 0%, rgba(44, 62, 80, 0.95) 100%);
             border: 2px solid #34495e;
-            border-radius: 8px;
-            padding: 15px;
+            border-radius: 12px;
+            padding: 20px;
             margin-bottom: 15px;
             cursor: pointer;
             transition: all 0.3s;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
 
         .lobby-card:hover {
             border-color: #3498db;
-            transform: scale(1.02);
-            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(52, 152, 219, 0.4);
+            background: linear-gradient(135deg, rgba(52, 152, 219, 0.2) 0%, rgba(52, 73, 94, 0.95) 100%);
         }
 
         .lobby-card.locked {
             border-color: #f39c12;
+            background: linear-gradient(135deg, rgba(243, 156, 18, 0.15) 0%, rgba(52, 73, 94, 0.95) 100%);
         }
 
         .lobby-card.locked:hover {
             border-color: #f1c40f;
+            box-shadow: 0 8px 20px rgba(241, 196, 15, 0.3);
         }
 
         .lobby-card h3 {
-            margin: 0 0 10px 0;
-            font-size: 1.2em;
+            margin: 0 0 12px 0;
+            font-size: 1.4em;
+            font-weight: 700;
             color: #3498db;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .lobby-card.locked h3 {
@@ -311,9 +338,10 @@
         }
 
         .lobby-card p {
-            margin: 5px 0;
-            color: #bdc3c7;
-            font-size: 0.9em;
+            margin: 8px 0;
+            color: #ecf0f1;
+            font-size: 1em;
+            font-weight: 500;
         }
 
         .player-score {
@@ -347,15 +375,17 @@
             top: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.9);
             color: #fff;
-            padding: 15px 30px;
-            border-radius: 10px;
-            font-size: 24px;
-            font-weight: bold;
+            padding: 18px 40px;
+            border-radius: 12px;
+            font-size: 26px;
+            font-weight: 800;
             display: none;
-            border: 3px solid;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            border: 4px solid;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.7), inset 0 0 20px rgba(255, 255, 255, 0.1);
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         #powerupTimer.machinegun {
