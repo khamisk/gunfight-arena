@@ -1276,28 +1276,59 @@ function broadcastToLobby(lobbyId) {
             railgunLaser: room.gameState.railgunLaser
         };
 
+        // Pre-stringify once (optimization - was being done per-player)
+        const gameStateMessage = JSON.stringify({
+            type: 'game_state',
+            state: gameState
+        });
+
+        let sentCount = 0;
+        let skippedCount = 0;
+
         players.forEach(player => {
             const connection = playerConnections.get(player.id);
-            if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
+            if (connection && connection.ws) {
+                // Skip if connection not ready (optimization - prevents blocking)
+                if (connection.ws.readyState !== WebSocket.OPEN) {
+                    skippedCount++;
+                    return;
+                }
+
+                // Skip if send buffer is extremely full (prevents blocking on very slow clients)
+                // Only skip if buffer > 500KB (very severe lag)
+                if (connection.ws.bufferedAmount > 500000) {
+                    skippedCount++;
+                    return;
+                }
+
                 try {
-                    connection.ws.send(JSON.stringify({
-                        type: 'game_state',
-                        state: gameState
-                    }));
+                    connection.ws.send(gameStateMessage);
+                    sentCount++;
                 } catch (e) {
-                    console.error(`Error sending to player ${player.name}:`, e);
+                    console.error(`Error sending to player ${player.name}:`, e.message);
                 }
             }
         });
+
+        // Warn if many players are being skipped
+        if (skippedCount > players.length / 2) {
+            console.warn(`⚠️ Game loop: ${skippedCount}/${players.length} players skipped (slow connections)`);
+        }
 
         frameCount++;
         if (frameCount % 60 === 0) {
             console.log(`Game running... frame ${frameCount}, ${players.length} players`);
         }
 
+        // Watchdog: detect if entire loop iteration took too long
+        const loopDuration = Date.now() - now;
+        if (loopDuration > 50) { // More than 50ms for one frame = bad
+            console.error(`❌ SLOW GAME LOOP: ${loopDuration}ms (players: ${players.length}, bullets: ${room.gameState.bullets.length})`);
+        }
+
         // Check if game should end (all but one player dead or time up)
         const alivePlayers = Object.values(room.gameState.players).filter(p => p.health > 0);
-        if (alivePlayers.length <= 1) {
+        if (alivePlayers.length <= 1 && !room.gameEnded) {
             console.log(`🏁 GAME ENDED - Only ${alivePlayers.length} player(s) alive`);
             endGame(room, players, gameLoop);
         }
@@ -1305,9 +1336,12 @@ function broadcastToLobby(lobbyId) {
 
     // Store game loop and timeout references in room for admin reset
     room.gameLoop = gameLoop;
+    room.gameEnded = false;
     room.gameTimeout = setTimeout(() => {
-        console.log(`🏁 GAME ENDED - Time expired`);
-        endGame(room, players, gameLoop);
+        if (!room.gameEnded) {
+            console.log(`🏁 GAME ENDED - Time expired`);
+            endGame(room, players, gameLoop);
+        }
     }, 120000);
 
     // Store players reference for admin reset
@@ -1315,7 +1349,23 @@ function broadcastToLobby(lobbyId) {
 }
 
 function endGame(room, players, gameLoop) {
+    // Prevent double-ending
+    if (room.gameEnded) {
+        console.log('⚠️ Game already ended, skipping duplicate endGame call');
+        return;
+    }
+    room.gameEnded = true;
+
+    // Clear both interval and timeout
     clearInterval(gameLoop);
+    if (room.gameTimeout) {
+        clearTimeout(room.gameTimeout);
+        room.gameTimeout = null;
+    }
+    if (room.gameLoop) {
+        clearInterval(room.gameLoop);
+        room.gameLoop = null;
+    }
 
     // Find winner (last alive or most kills)
     const alivePlayers = Object.values(room.gameState.players).filter(p => p.health > 0);
